@@ -1,0 +1,732 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SAP Transport Buffer & Import Manager — by Pankaj Kapote</title>
+    <!-- SheetJS for Excel Parsing -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <style>
+        :root {
+            --sap-blue: #0a6ed1;
+            --sap-dark: #1d2d3e;
+            --sap-bg: #f5f7fa;
+            --sap-border: #d9d9d9;
+            --rc-0: #2e7d32;
+            --rc-4: #ed6c02;
+            --rc-8: #d32f2f;
+            --rc-12: #9c27b0;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--sap-bg);
+            color: #333;
+            margin: 0;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1280px;
+            margin: 0 auto;
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+            padding: 24px;
+        }
+
+        header {
+            border-bottom: 2px solid var(--sap-blue);
+            padding-bottom: 12px;
+            margin-bottom: 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        .header-title-container {
+            display: flex;
+            flex-direction: column;
+        }
+
+        h1 { color: var(--sap-dark); margin: 0; font-size: 26px; font-weight: 700; }
+
+        .tagline {
+            color: #d32f2f;
+            font-size: 14px;
+            font-weight: 600;
+            font-style: italic;
+            margin-top: 4px;
+        }
+
+        .tool-info {
+            background-color: #f0f7ff;
+            border-left: 4px solid var(--sap-blue);
+            padding: 12px 16px;
+            border-radius: 0 6px 6px 0;
+            margin-bottom: 20px;
+            font-size: 13.5px;
+            line-height: 1.5;
+            color: #2c3e50;
+        }
+
+        .tool-info h4 { margin: 0 0 6px 0; color: var(--sap-blue); font-size: 14px; }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .card {
+            border: 1px solid var(--sap-border);
+            border-radius: 6px;
+            padding: 16px;
+            background: #fafafa;
+        }
+
+        .card h3 {
+            margin-top: 0;
+            color: var(--sap-blue);
+            font-size: 15px;
+            border-bottom: 1px solid var(--sap-border);
+            padding-bottom: 8px;
+        }
+
+        .form-group { margin-bottom: 12px; }
+
+        label {
+            display: block;
+            font-size: 12.5px;
+            font-weight: 600;
+            margin-bottom: 4px;
+            color: #555;
+        }
+
+        input[type="text"], textarea, select {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid var(--sap-border);
+            border-radius: 4px;
+            box-sizing: border-box;
+            font-size: 13.5px;
+        }
+
+        .btn {
+            background-color: var(--sap-blue);
+            color: white;
+            border: none;
+            padding: 9px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 13px;
+            transition: background-color 0.2s;
+        }
+
+        .btn:hover { background-color: #0854a0; }
+        .btn-bat { background-color: #e65100; }
+        .btn-bat:hover { background-color: #ef6c00; }
+        .btn-ps { background-color: #0078d4; }
+        .btn-ps:hover { background-color: #005a9e; }
+        .btn-reset { background-color: #616161; }
+        .btn-reset:hover { background-color: #424242; }
+        .btn:disabled { background-color: #ccc; cursor: not-allowed; }
+
+        .btn-action-group {
+            display: flex;
+            gap: 6px;
+        }
+
+        .btn-add {
+            background-color: #2e7d32;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 4px 8px;
+            font-size: 12px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        .btn-add:hover { background-color: #1b5e20; }
+
+        .btn-remove {
+            background-color: #d32f2f;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 4px 8px;
+            font-size: 12px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        .btn-remove:hover { background-color: #b71c1c; }
+
+        .dup-badge {
+            background-color: #ed6c02;
+            color: white;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: bold;
+            margin-left: 6px;
+        }
+
+        .tr-dup-row {
+            background-color: #fff8e1 !important;
+        }
+
+        .script-export-box {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .script-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #fff;
+            padding: 8px 12px;
+            border: 1px solid var(--sap-border);
+            border-radius: 4px;
+        }
+
+        .script-label {
+            font-weight: 600;
+            font-size: 13px;
+            color: var(--sap-dark);
+        }
+
+        .alert-box {
+            padding: 12px 16px;
+            background: #fff3cd;
+            border: 1px solid #ffeeba;
+            color: #856404;
+            border-radius: 4px;
+            margin-bottom: 16px;
+            display: none;
+            font-size: 13.5px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 12px;
+            font-size: 13.5px;
+        }
+
+        th, td {
+            border: 1px solid var(--sap-border);
+            padding: 8px 10px;
+            text-align: left;
+        }
+
+        th { background-color: #f0f4f8; color: var(--sap-dark); font-size: 13px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <header>
+        <div class="header-title-container">
+            <h1>SAP Transport Buffer & Import Manager</h1>
+            <div class="tagline">Built by a BASIS guy, for BASIS guys — Pankaj Kapote</div>
+        </div>
+        <div>
+            <button id="resetAllBtn" class="btn btn-reset">Reset All</button>
+        </div>
+    </header>
+
+    <!-- Tool Info -->
+    <div class="tool-info">
+        <h4>Buffer & Import Automation Strategy</h4>
+        <ul>
+            <li><strong>Interactive Sequence Editing:</strong> Retains your exact transport order. Insert new transports directly into the sequence using **`➕ Add`** or drop unwanted requests via **`✖ Remove`**. Repetitions are explicitly tagged (`x1`, `x2`...).</li>
+            <li><strong>Synchronized Script Pairs:</strong> Corresponding Buffer and Import scripts generated together share an exact timestamp (e.g. `PRD_1_buffer_setup_20260728_183000.sh` and `PRD_2_import_transports_20260728_183000.sh`).</li>
+        </ul>
+    </div>
+
+    <div id="alertBox" class="alert-box"></div>
+
+    <div class="grid">
+        <!-- Input Options -->
+        <div class="card">
+            <h3>1. Load Transport List</h3>
+            <div class="form-group">
+                <label>Upload File (TXT, CSV, XLS, XLSX)</label>
+                <input type="file" id="fileInput" accept=".txt, .csv, .xls, .xlsx" />
+            </div>
+            <div class="form-group">
+                <label>Or Paste Transports (One per line)</label>
+                <textarea id="pasteInput" rows="3" placeholder="DEVK900001&#10;DEVK900002, u128"></textarea>
+            </div>
+            <button id="parseBtn" class="btn" style="width:100%;">Process & Flag Transports</button>
+        </div>
+
+        <!-- System Configuration -->
+        <div class="card">
+            <h3>2. System Configuration</h3>
+            <div class="form-group">
+                <label>Target System SID</label>
+                <input type="text" id="targetSid" value="PRD">
+            </div>
+            <div class="form-group">
+                <label>Target Client</label>
+                <input type="text" id="targetClient" value="100">
+            </div>
+            <div class="form-group">
+                <label>Transport Directory Path</label>
+                <input type="text" id="transDir" value="/usr/sap/trans">
+            </div>
+            <div class="form-group">
+                <label>Default U-Flag</label>
+                <input type="text" id="defaultUFlag" value="u12">
+            </div>
+        </div>
+
+        <!-- Script Export Options -->
+        <div class="card">
+            <h3>3. Error Handling & Script Export</h3>
+            <div class="form-group">
+                <label>Import Strategy on RC 8 or 12</label>
+                <select id="errorHandlingStrategy">
+                    <option value="prompt">Stop & prompt for double confirmation before proceeding</option>
+                    <option value="ignore">Keep importing transports irrespective of RC code</option>
+                </select>
+            </div>
+            
+            <label style="margin-top: 10px;">Download OS Scripts</label>
+            <div class="script-export-box">
+                <div class="script-row">
+                    <span class="script-label">Linux / Unix Shell</span>
+                    <button id="genBashBtn" class="btn" disabled>Export (.sh)</button>
+                </div>
+                <div class="script-row">
+                    <span class="script-label">Windows PowerShell</span>
+                    <button id="genPsBtn" class="btn btn-ps" disabled>Export (.ps1)</button>
+                </div>
+                <div class="script-row">
+                    <span class="script-label">Windows Batch</span>
+                    <button id="genBatBtn" class="btn btn-bat" disabled>Export (.bat)</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Transport Queue Table -->
+    <div class="card">
+        <h3>Loaded Transport Sequence (<span id="trCount">0</span>)</h3>
+        <table id="trTable">
+            <thead>
+                <tr>
+                    <th>Seq</th>
+                    <th>Transport Request</th>
+                    <th>Target SID</th>
+                    <th>Client</th>
+                    <th>U-Flag (Editable)</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr><td colspan="6" style="text-align:center; color:#888;">No transports loaded yet.</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+    let rawTransports = [];
+    let transportQueue = [];
+
+    document.getElementById('parseBtn').addEventListener('click', () => {
+        const fileInput = document.getElementById('fileInput').files[0];
+        const pasteInput = document.getElementById('pasteInput').value.trim();
+
+        if (fileInput) {
+            const reader = new FileReader();
+            const ext = fileInput.name.split('.').pop().toLowerCase();
+
+            if (ext === 'xlsx' || ext === 'xls') {
+                reader.onload = (e) => {
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = XLSX.read(data, { type: 'array' });
+                    const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+                    const json = XLSX.utils.sheet_to_json(firstSheet, { header: 1 });
+                    parseAndFlagTransports(json.map(row => row.join(',')));
+                };
+                reader.readAsArrayBuffer(fileInput);
+            } else {
+                reader.onload = (e) => {
+                    parseAndFlagTransports(e.target.result.split('\n'));
+                };
+                reader.readAsText(fileInput);
+            }
+        } else if (pasteInput) {
+            parseAndFlagTransports(pasteInput.split('\n'));
+        } else {
+            alert('Please load a file or paste transport IDs.');
+        }
+    });
+
+    function parseAndFlagTransports(lines) {
+        const defaultUFlag = document.getElementById('defaultUFlag').value.trim() || 'u12';
+        rawTransports = [];
+
+        lines.forEach(line => {
+            const clean = line.trim();
+            if (clean && !clean.toLowerCase().startsWith('header') && !clean.toLowerCase().startsWith('transport')) {
+                const parts = clean.split(/[,;]/);
+                const tr = parts[0].trim();
+                const uflag = parts.length > 1 && parts[1].trim() ? parts[1].trim() : defaultUFlag;
+                if (tr) rawTransports.push({ tr, uflag });
+            }
+        });
+
+        transportQueue = rawTransports.map(item => ({ tr: item.tr, uflag: item.uflag }));
+        recalculateDuplicatesAndRender();
+    }
+
+    function recalculateDuplicatesAndRender() {
+        const trCounts = {};
+        transportQueue.forEach(item => {
+            trCounts[item.tr] = (trCounts[item.tr] || 0) + 1;
+            item.occurrence = trCounts[item.tr];
+        });
+
+        const totalCounts = {};
+        transportQueue.forEach(item => {
+            totalCounts[item.tr] = (totalCounts[item.tr] || 0) + 1;
+        });
+        transportQueue.forEach(item => {
+            item.isDuplicate = totalCounts[item.tr] > 1;
+        });
+
+        const alertBox = document.getElementById('alertBox');
+        const dupCount = Object.values(totalCounts).filter(c => c > 1).length;
+        if (dupCount > 0) {
+            alertBox.style.display = 'block';
+            alertBox.innerHTML = `<strong>Notice:</strong> Found duplicate transport entries in the list. Repetitions are explicitly flagged below (e.g., x1, x2). You can add or remove any entry manually.`;
+        } else {
+            alertBox.style.display = 'none';
+        }
+
+        renderTable();
+    }
+
+    function renderTable() {
+        const tbody = document.querySelector('#trTable tbody');
+        const sid = document.getElementById('targetSid').value;
+        const client = document.getElementById('targetClient').value;
+        tbody.innerHTML = '';
+
+        if (transportQueue.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:#888;">No transports loaded yet.</td></tr>';
+            toggleActionButtons(true);
+            return;
+        }
+
+        transportQueue.forEach((item, index) => {
+            const tr = document.createElement('tr');
+            if (item.isDuplicate) {
+                tr.classList.add('tr-dup-row');
+            }
+
+            const dupBadge = item.isDuplicate ? `<span class="dup-badge">x${item.occurrence}</span>` : '';
+
+            tr.innerHTML = `
+                <td>${index + 1}</td>
+                <td><strong>${item.tr}</strong>${dupBadge}</td>
+                <td>${sid}</td>
+                <td>${client}</td>
+                <td><input type="text" value="${item.uflag}" onchange="updateUFlag(${index}, this.value)" style="width:70px;"></td>
+                <td>
+                    <div class="btn-action-group">
+                        <button class="btn-add" onclick="addTransportAfter(${index})">➕ Add</button>
+                        <button class="btn-remove" onclick="removeTransport(${index})">✖ Remove</button>
+                    </div>
+                </td>
+            `;
+            tbody.appendChild(tr);
+        });
+
+        document.getElementById('trCount').innerText = transportQueue.length;
+        toggleActionButtons(false);
+    }
+
+    function addTransportAfter(index) {
+        const defaultUFlag = document.getElementById('defaultUFlag').value.trim() || 'u12';
+        const input = prompt("Enter new Transport Request ID (or TR_ID, U-FLAG e.g. DEVK900099, u128):");
+        
+        if (input) {
+            const parts = input.split(/[,;]/);
+            const tr = parts[0].trim().toUpperCase();
+            const uflag = parts.length > 1 && parts[1].trim() ? parts[1].trim() : defaultUFlag;
+
+            if (tr) {
+                transportQueue.splice(index + 1, 0, { tr, uflag });
+                recalculateDuplicatesAndRender();
+            }
+        }
+    }
+
+    function removeTransport(index) {
+        transportQueue.splice(index, 1);
+        recalculateDuplicatesAndRender();
+    }
+
+    function toggleActionButtons(disabled) {
+        document.getElementById('genBashBtn').disabled = disabled;
+        document.getElementById('genPsBtn').disabled = disabled;
+        document.getElementById('genBatBtn').disabled = disabled;
+    }
+
+    function updateUFlag(index, val) {
+        transportQueue[index].uflag = val.trim();
+    }
+
+    function getFormattedTimestamp() {
+        const now = new Date();
+        const yyyy = now.getFullYear();
+        const mm = String(now.getMonth() + 1).padStart(2, '0');
+        const dd = String(now.getDate()).padStart(2, '0');
+        const hh = String(now.getHours()).padStart(2, '0');
+        const min = String(now.getMinutes()).padStart(2, '0');
+        const ss = String(now.getSeconds()).padStart(2, '0');
+        return `${yyyy}${mm}${dd}_${hh}${min}${ss}`;
+    }
+
+    document.getElementById('resetAllBtn').addEventListener('click', () => {
+        if (confirm("Are you sure you want to reset everything and start over?")) {
+            document.getElementById('fileInput').value = '';
+            document.getElementById('pasteInput').value = '';
+            document.getElementById('targetSid').value = 'PRD';
+            document.getElementById('targetClient').value = '100';
+            document.getElementById('transDir').value = '/usr/sap/trans';
+            document.getElementById('defaultUFlag').value = 'u12';
+            document.getElementById('errorHandlingStrategy').value = 'prompt';
+            document.getElementById('alertBox').style.display = 'none';
+            transportQueue = [];
+            renderTable();
+        }
+    });
+
+    function downloadFile(content, filename, mime) {
+        const blob = new Blob([content], { type: mime });
+        const a = document.createElement('a');
+        a.href = window.URL.createObjectURL(blob);
+        a.download = filename;
+        a.click();
+    }
+
+    // GENERATE SEPARATE LINUX/UNIX BASH SCRIPTS
+    document.getElementById('genBashBtn').addEventListener('click', () => {
+        const sid = document.getElementById('targetSid').value;
+        const transDir = document.getElementById('transDir').value;
+        const client = document.getElementById('targetClient').value;
+        const profile = `${transDir}/bin/TP_DOMAIN_${sid}.PFL`;
+        const bufferPath = `${transDir}/buffer/${sid}`;
+        const stopOnError = document.getElementById('errorHandlingStrategy').value === 'prompt';
+        const ts = getFormattedTimestamp();
+
+        // 1. Buffer Setup Script (.sh)
+        let bufSh = `#!/usr/bin/env bash\n# STEP 1: SAP Buffer Backup & Addition Script\n# Built by Pankaj Kapote\n\n`;
+        bufSh += `TARGET_SID="${sid}"\nPROFILE="${profile}"\nBUFFER_PATH="${bufferPath}"\n\n`;
+        bufSh += `echo "1. Backing up existing buffer file..."\n`;
+        bufSh += `if [ -f "$BUFFER_PATH" ]; then\n`;
+        bufSh += `  cp "$BUFFER_PATH" "${bufferPath}_backup_${ts}"\n`;
+        bufSh += `  if [ $? -ne 0 ]; then echo "Error backing up buffer file! Aborting."; exit 1; fi\n`;
+        bufSh += `  echo "Backup successfully created."\n`;
+        bufSh += `fi\n\n`;
+        bufSh += `echo "2. Clearing existing buffer entries..."\n`;
+        bufSh += `tp delfrombuffer ALL $TARGET_SID pf=$PROFILE > /dev/null 2>&1\n`;
+        bufSh += `> "$BUFFER_PATH"\n`;
+        bufSh += `echo "Buffer cleared."\n\n`;
+        bufSh += `echo "3. Adding selected transports into buffer in sequence..."\n`;
+        transportQueue.forEach(item => {
+            bufSh += `echo "Adding ${item.tr} to buffer..."\n`;
+            bufSh += `tp addtobuffer ${item.tr} $TARGET_SID pf=$PROFILE\n`;
+            bufSh += `if [ $? -ne 0 ]; then echo "ERROR: Failed to add ${item.tr} to buffer! Aborting."; exit 1; fi\n`;
+        });
+        bufSh += `\necho "Buffer setup successfully completed! Proceed with running import script."\n`;
+        downloadFile(bufSh, `${sid}_1_buffer_setup_${ts}.sh`, 'text/x-sh');
+
+        // 2. Import Execution Script (.sh)
+        let impSh = `#!/usr/bin/env bash\n# STEP 2: SAP Transport Import Script\n# Built by Pankaj Kapote\n\n`;
+        impSh += `TARGET_SID="${sid}"\nTARGET_CLIENT="${client}"\nPROFILE="${profile}"\nLOG_FILE="sap_import_log_${ts}.csv"\n\n`;
+        impSh += `START_TIME=$(date +%s)\n`;
+        impSh += `CNT_TOTAL=0; CNT_RC0=0; CNT_RC4=0; CNT_RC8=0; CNT_RC12=0; CNT_OTHER=0\n\n`;
+        impSh += `echo "Date,Time,Transport_Number,Target_SID,Target_Client,U_Flag,Return_Code" > $LOG_FILE\n\n`;
+        
+        transportQueue.forEach(item => {
+            impSh += `echo "Importing ${item.tr}..."\n`;
+            impSh += `tp import ${item.tr} $TARGET_SID client=$TARGET_CLIENT ${item.uflag} pf=$PROFILE\n`;
+            impSh += `RC=$?\n`;
+            impSh += `echo "$(date +%Y-%m-%d),$(date +%H:%M:%S),${item.tr},$TARGET_SID,$TARGET_CLIENT,${item.uflag},$RC" >> $LOG_FILE\n`;
+            impSh += `((CNT_TOTAL++))\n`;
+            impSh += `case $RC in 0) ((CNT_RC0++));; 4) ((CNT_RC4++));; 8) ((CNT_RC8++));; 12) ((CNT_RC12++));; *) ((CNT_OTHER++));; esac\n`;
+            
+            if (stopOnError) {
+                impSh += `if [ $RC -eq 8 ] || [ $RC -eq 12 ]; then\n`;
+                impSh += `  read -p "Warning: RC $RC on ${item.tr}. Are you sure you want to continue? (Y/N): " CONF1\n`;
+                impSh += `  if [[ "$CONF1" =~ ^[Yy]$ ]]; then\n`;
+                impSh += `    read -p "DOUBLE CONFIRMATION: Type YES to continue importing: " CONF2\n`;
+                impSh += `    if [ "$CONF2" != "YES" ]; then exit 1; fi\n`;
+                impSh += `  else exit 1; fi\n`;
+                impSh += `fi\n`;
+            }
+            impSh += `\n`;
+        });
+
+        impSh += `END_TIME=$(date +%s)\n`;
+        impSh += `ELAPSED_MIN=$(( (END_TIME - START_TIME) / 60 ))\n`;
+        impSh += `echo "" >> $LOG_FILE\n`;
+        impSh += `echo "=== SUMMARY BLOCK ===" >> $LOG_FILE\n`;
+        impSh += `echo "Total Processed,$CNT_TOTAL" >> $LOG_FILE\n`;
+        impSh += `echo "Elapsed Time (Minutes),$ELAPSED_MIN" >> $LOG_FILE\n`;
+        impSh += `echo "RC 0,$CNT_RC0" >> $LOG_FILE\n`;
+        impSh += `echo "RC 4,$CNT_RC4" >> $LOG_FILE\n`;
+        impSh += `echo "RC 8,$CNT_RC8" >> $LOG_FILE\n`;
+        impSh += `echo "RC 12,$CNT_RC12" >> $LOG_FILE\n`;
+        impSh += `echo "Transport import sequence completed. Log written to $LOG_FILE"\n`;
+        downloadFile(impSh, `${sid}_2_import_transports_${ts}.sh`, 'text/x-sh');
+    });
+
+    // GENERATE SEPARATE POWERSHELL SCRIPTS (.ps1)
+    document.getElementById('genPsBtn').addEventListener('click', () => {
+        const sid = document.getElementById('targetSid').value;
+        const transDir = document.getElementById('transDir').value;
+        const client = document.getElementById('targetClient').value;
+        const profile = `${transDir}\\bin\\TP_DOMAIN_${sid}.PFL`;
+        const bufferPath = `${transDir}\\buffer\\${sid}`;
+        const stopOnError = document.getElementById('errorHandlingStrategy').value === 'prompt';
+        const ts = getFormattedTimestamp();
+
+        // 1. Buffer Setup Script (.ps1)
+        let bufPs = `# STEP 1: SAP Buffer Backup & Addition Script (PowerShell)\n# Built by Pankaj Kapote\n\n`;
+        bufPs += `$TargetSID = "${sid}"\n$Profile = "${profile}"\n$BufferPath = "${bufferPath}"\n\n`;
+        bufPs += `Write-Host "1. Backing up buffer file..." -ForegroundColor Cyan\n`;
+        bufPs += `if (Test-Path $BufferPath) {\n`;
+        bufPs += `  Copy-Item $BufferPath "${bufferPath}_backup_${ts}"\n`;
+        bufPs += `  if (-not $?) { Write-Host "Error backing up buffer file! Aborting." -ForegroundColor Red; exit }\n`;
+        bufPs += `  Write-Host "Backup created successfully." -ForegroundColor Green\n`;
+        bufPs += `}\n\n`;
+        bufPs += `Write-Host "2. Clearing existing buffer entries..." -ForegroundColor Cyan\n`;
+        bufPs += `& tp delfrombuffer ALL $TargetSID "pf=$Profile" *>$null\n`;
+        bufPs += `Clear-Content $BufferPath -ErrorAction SilentlyContinue\n`;
+        bufPs += `Write-Host "Buffer cleared." -ForegroundColor Green\n\n`;
+        bufPs += `Write-Host "3. Adding selected transports into buffer..." -ForegroundColor Cyan\n`;
+        transportQueue.forEach(item => {
+            bufPs += `Write-Host "Adding ${item.tr} to buffer..."\n`;
+            bufPs += `& tp addtobuffer ${item.tr} $TargetSID "pf=$Profile"\n`;
+            bufPs += `if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: Failed to add ${item.tr} to buffer! Aborting." -ForegroundColor Red; exit }\n`;
+        });
+        bufPs += `\nWrite-Host "Buffer setup completed successfully! Proceed with running import script." -ForegroundColor Green\n`;
+        downloadFile(bufPs, `${sid}_1_buffer_setup_${ts}.ps1`, 'text/plain');
+
+        // 2. Import Execution Script (.ps1)
+        let impPs = `# STEP 2: SAP Transport Import Script (PowerShell)\n# Built by Pankaj Kapote\n\n`;
+        impPs += `$TargetSID = "${sid}"\n$TargetClient = "${client}"\n$Profile = "${profile}"\n$LogFile = "sap_import_log_${ts}.csv"\n`;
+        impPs += `$StartTime = Get-Date\n`;
+        impPs += `$CntTotal=0; $CntRC0=0; $CntRC4=0; $CntRC8=0; $CntRC12=0; $CntOther=0\n\n`;
+        impPs += `"Date,Time,Transport_Number,Target_SID,Target_Client,U_Flag,Return_Code" | Out-File $LogFile\n\n`;
+        
+        transportQueue.forEach(item => {
+            impPs += `Write-Host "Importing ${item.tr}..." -ForegroundColor Yellow\n`;
+            impPs += `& tp import ${item.tr} $TargetSID "client=$TargetClient" ${item.uflag} "pf=$Profile"\n`;
+            impPs += `$RC = $LASTEXITCODE\n`;
+            impPs += `"$(Get-Date -Format 'yyyy-MM-dd'),$(Get-Date -Format 'HH:mm:ss'),${item.tr},$TargetSID,$TargetClient,${item.uflag},$RC" | Out-File $LogFile -Append\n`;
+            impPs += `$CntTotal++\n`;
+            impPs += `switch ($RC) { 0 {$CntRC0++} 4 {$CntRC4++} 8 {$CntRC8++} 12 {$CntRC12++} default {$CntOther++} }\n`;
+
+            if (stopOnError) {
+                impPs += `if ($RC -eq 8 -or $RC -eq 12) {\n`;
+                impPs += `  $ans1 = Read-Host "Warning: RC $RC on ${item.tr}. Do you want to continue? (Y/N)"\n`;
+                impPs += `  if ($ans1 -eq "Y" -or $ans1 -eq "y") {\n`;
+                impPs += `    $ans2 = Read-Host "DOUBLE CONFIRMATION: Type YES to proceed"\n`;
+                impPs += `    if ($ans2 -ne "YES") { exit }\n`;
+                impPs += `  } else { exit }\n`;
+                impPs += `}\n`;
+            }
+            impPs += `\n`;
+        });
+
+        impPs += `$EndTime = Get-Date\n`;
+        impPs += `$ElapsedMin = [math]::Round(($EndTime - $StartTime).TotalMinutes, 2)\n`;
+        impPs += `"" | Out-File $LogFile -Append\n`;
+        impPs += `"=== SUMMARY BLOCK ===" | Out-File $LogFile -Append\n`;
+        impPs += `"Total Processed,$CntTotal" | Out-File $LogFile -Append\n`;
+        impPs += `"Elapsed Time (Minutes),$ElapsedMin" | Out-File $LogFile -Append\n`;
+        impPs += `"RC 0,$CntRC0" | Out-File $LogFile -Append\n`;
+        impPs += `"RC 4,$CntRC4" | Out-File $LogFile -Append\n`;
+        impPs += `"RC 8,$CntRC8" | Out-File $LogFile -Append\n`;
+        impPs += `"RC 12,$CntRC12" | Out-File $LogFile -Append\n`;
+        impPs += `Write-Host "Transport import sequence completed. Log saved to $LogFile" -ForegroundColor Green\n`;
+        downloadFile(impPs, `${sid}_2_import_transports_${ts}.ps1`, 'text/plain');
+    });
+
+    // GENERATE SEPARATE WINDOWS BATCH SCRIPTS (.bat)
+    document.getElementById('genBatBtn').addEventListener('click', () => {
+        const sid = document.getElementById('targetSid').value;
+        const transDir = document.getElementById('transDir').value;
+        const client = document.getElementById('targetClient').value;
+        const profile = `${transDir}\\bin\\TP_DOMAIN_${sid}.PFL`;
+        const bufferPath = `${transDir}\\buffer\\${sid}`;
+        const stopOnError = document.getElementById('errorHandlingStrategy').value === 'prompt';
+        const ts = getFormattedTimestamp();
+
+        // 1. Buffer Setup Script (.bat)
+        let bufBat = `@echo off\nREM STEP 1: SAP Buffer Backup & Addition Script (Windows Batch)\nREM Built by Pankaj Kapote\n\n`;
+        bufBat += `set TARGET_SID=${sid}\nset PROFILE=${profile}\nset BUFFER_PATH=${bufferPath}\n\n`;
+        bufBat += `echo 1. Backing up existing buffer file...\n`;
+        bufBat += `if exist "%BUFFER_PATH%" (\n`;
+        bufBat += `    copy "%BUFFER_PATH%" "%BUFFER_PATH%_backup_${ts}.bak" >nul\n`;
+        bufBat += `    if %ERRORLEVEL% NEQ 0 ( echo Error backing up buffer file! & goto :ABORT )\n`;
+        bufBat += `    echo Backup created successfully.\n`;
+        bufBat += `)\n\n`;
+        bufBat += `echo 2. Clearing existing buffer entries...\n`;
+        bufBat += `tp delfrombuffer ALL %TARGET_SID% pf=%PROFILE% >nul 2>&1\n`;
+        bufBat += `type nul > "%BUFFER_PATH%"\n`;
+        bufBat += `echo Buffer cleared.\n\n`;
+        bufBat += `echo 3. Adding selected transports into buffer...\n`;
+        transportQueue.forEach(item => {
+            bufBat += `echo Adding ${item.tr} to buffer...\n`;
+            bufBat += `tp addtobuffer ${item.tr} %TARGET_SID% pf=%PROFILE%\n`;
+            bufBat += `if %ERRORLEVEL% NEQ 0 ( echo ERROR: Failed to add ${item.tr} to buffer! & goto :ABORT )\n`;
+        });
+        bufBat += `\necho Buffer setup completed successfully! Proceed with import script.\ngoto :END\n:ABORT\necho Buffer setup failed!\n:END\n`;
+        downloadFile(bufBat, `${sid}_1_buffer_setup_${ts}.bat`, 'text/plain');
+
+        // 2. Import Execution Script (.bat)
+        let impBat = `@echo off\nREM STEP 2: SAP Transport Import Script (Windows Batch)\nREM Built by Pankaj Kapote\n\n`;
+        impBat += `set TARGET_SID=${sid}\nset TARGET_CLIENT=${client}\nset PROFILE=${profile}\nset LOG_FILE=sap_import_log_${ts}.csv\n\n`;
+        impBat += `echo Date,Time,Transport_Number,Target_SID,Target_Client,U_Flag,Return_Code > %LOG_FILE%\n\n`;
+        
+        transportQueue.forEach(item => {
+            impBat += `echo Importing ${item.tr}...\n`;
+            impBat += `tp import ${item.tr} %TARGET_SID% client=%TARGET_CLIENT% ${item.uflag} pf=%PROFILE%\n`;
+            impBat += `set RC=%ERRORLEVEL%\n`;
+            impBat += `echo %DATE%,%TIME%,${item.tr},%TARGET_SID%,%TARGET_CLIENT%,${item.uflag},%RC% >> %LOG_FILE%\n`;
+            
+            if (stopOnError) {
+                impBat += `if %RC% GEQ 8 (\n`;
+                impBat += `    echo WARNING: Transport ${item.tr} ended with RC %RC%\n`;
+                impBat += `    set /p CONF="Type YES to continue importing: "\n`;
+                impBat += `    if /i not "%CONF%"=="YES" goto :ABORT\n`;
+                impBat += `)\n`;
+            }
+            impBat += `\n`;
+        });
+
+        impBat += `echo Import process completed.\ngoto :END\n:ABORT\necho Import sequence aborted.\n:END\n`;
+        downloadFile(impBat, `${sid}_2_import_transports_${ts}.bat`, 'text/plain');
+    });
+</script>
+</body>
+</html>
