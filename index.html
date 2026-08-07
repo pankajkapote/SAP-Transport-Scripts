@@ -106,13 +106,26 @@
             color: #555;
         }
 
-        input[type="text"], textarea, select {
+        input[type="text"], textarea {
             width: 100%;
             padding: 8px;
             border: 1px solid var(--sap-border);
             border-radius: 4px;
             box-sizing: border-box;
             font-size: 13.5px;
+        }
+
+        .radio-option {
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+            margin-bottom: 8px;
+            font-size: 13px;
+            cursor: pointer;
+        }
+
+        .radio-option input[type="radio"] {
+            margin-top: 3px;
         }
 
         .btn {
@@ -136,10 +149,7 @@
         .btn-reset:hover { background-color: #424242; }
         .btn:disabled { background-color: #ccc; cursor: not-allowed; }
 
-        .btn-action-group {
-            display: flex;
-            gap: 6px;
-        }
+        .btn-action-group { display: flex; gap: 6px; }
 
         .btn-add {
             background-color: #2e7d32;
@@ -151,7 +161,6 @@
             cursor: pointer;
             font-weight: bold;
         }
-
         .btn-add:hover { background-color: #1b5e20; }
 
         .btn-remove {
@@ -164,7 +173,6 @@
             cursor: pointer;
             font-weight: bold;
         }
-
         .btn-remove:hover { background-color: #b71c1c; }
 
         .dup-badge {
@@ -177,9 +185,7 @@
             margin-left: 6px;
         }
 
-        .tr-dup-row {
-            background-color: #fff8e1 !important;
-        }
+        .tr-dup-row { background-color: #fff8e1 !important; }
 
         .script-export-box {
             display: flex;
@@ -198,11 +204,7 @@
             border-radius: 4px;
         }
 
-        .script-label {
-            font-weight: 600;
-            font-size: 13px;
-            color: var(--sap-dark);
-        }
+        .script-label { font-weight: 600; font-size: 13px; color: var(--sap-dark); }
 
         .alert-box {
             padding: 12px 16px;
@@ -248,8 +250,9 @@
     <div class="tool-info">
         <h4>Buffer & Import Automation Strategy</h4>
         <ul>
-            <li><strong>Interactive Sequence Editing:</strong> Retains your exact transport order. Insert new transports directly into the sequence using **`➕ Add`** or drop unwanted requests via **`✖ Remove`**. Repetitions are explicitly tagged (`x1`, `x2`...).</li>
-            <li><strong>Synchronized Script Pairs:</strong> Corresponding Buffer and Import scripts generated together share an exact timestamp (e.g. `PRD_1_buffer_setup_20260728_183000.sh` and `PRD_2_import_transports_20260728_183000.sh`).</li>
+            <li><strong>Preserved Input Sequence:</strong> All transports are generated exactly in the order provided. Duplicates are retained and explicitly flagged with repeat tags (`x1`, `x2`, `x3`...) so you can manually review and choose whether to remove them.</li>
+            <li><strong>Step 1 (Buffer Setup Script):</strong> Backs up buffer file (`/usr/sap/trans/buffer/<SID>`), clears entries via `tp delfrombuffer ALL <SID>`, and adds transports specifying target client (`client=<CLIENT>`). Outputs summary of successfully added vs. failed TRs.</li>
+            <li><strong>Step 2 (Import Execution Script):</strong> Performs `tp import` sequentially, logs execution data to CSV, and outputs a summary detailing RC counts while explicitly listing **only RC8 and RC12 failed transports**.</li>
         </ul>
     </div>
 
@@ -265,9 +268,8 @@
             </div>
             <div class="form-group">
                 <label>Or Paste Transports (One per line)</label>
-                <textarea id="pasteInput" rows="3" placeholder="DEVK900001&#10;DEVK900002, u128"></textarea>
+                <textarea id="pasteInput" rows="5" placeholder="DEVK900001&#10;DEVK900002, u128"></textarea>
             </div>
-            <button id="parseBtn" class="btn" style="width:100%;">Process & Flag Transports</button>
         </div>
 
         <!-- System Configuration -->
@@ -289,6 +291,7 @@
                 <label>Default U-Flag</label>
                 <input type="text" id="defaultUFlag" value="u12">
             </div>
+            <button id="parseBtn" class="btn" style="width:100%; margin-top: 10px;">Process & Flag Transports</button>
         </div>
 
         <!-- Script Export Options -->
@@ -296,13 +299,17 @@
             <h3>3. Error Handling & Script Export</h3>
             <div class="form-group">
                 <label>Import Strategy on RC 8 or 12</label>
-                <select id="errorHandlingStrategy">
-                    <option value="prompt">Stop & prompt for double confirmation before proceeding</option>
-                    <option value="ignore">Keep importing transports irrespective of RC code</option>
-                </select>
+                <label class="radio-option">
+                    <input type="radio" name="errorHandling" value="prompt" checked>
+                    Stop & prompt for double confirmation before proceeding
+                </label>
+                <label class="radio-option">
+                    <input type="radio" name="errorHandling" value="ignore">
+                    Keep importing transports irrespective of RC code
+                </label>
             </div>
             
-            <label style="margin-top: 10px;">Download OS Scripts</label>
+            <label style="margin-top: 14px;">Download OS Scripts</label>
             <div class="script-export-box">
                 <div class="script-row">
                     <span class="script-label">Linux / Unix Shell</span>
@@ -371,7 +378,7 @@
         } else if (pasteInput) {
             parseAndFlagTransports(pasteInput.split('\n'));
         } else {
-            alert('Please load a file or paste transport IDs.');
+            alert('Please select a file or paste transport IDs.');
         }
     });
 
@@ -510,7 +517,7 @@
             document.getElementById('targetClient').value = '100';
             document.getElementById('transDir').value = '/usr/sap/trans';
             document.getElementById('defaultUFlag').value = 'u12';
-            document.getElementById('errorHandlingStrategy').value = 'prompt';
+            document.querySelector('input[name="errorHandling"][value="prompt"]').checked = true;
             document.getElementById('alertBox').style.display = 'none';
             transportQueue = [];
             renderTable();
@@ -532,45 +539,67 @@
         const client = document.getElementById('targetClient').value;
         const profile = `${transDir}/bin/TP_DOMAIN_${sid}.PFL`;
         const bufferPath = `${transDir}/buffer/${sid}`;
-        const stopOnError = document.getElementById('errorHandlingStrategy').value === 'prompt';
+        const stopOnError = document.querySelector('input[name="errorHandling"]:checked').value === 'prompt';
         const ts = getFormattedTimestamp();
 
         // 1. Buffer Setup Script (.sh)
         let bufSh = `#!/usr/bin/env bash\n# STEP 1: SAP Buffer Backup & Addition Script\n# Built by Pankaj Kapote\n\n`;
-        bufSh += `TARGET_SID="${sid}"\nPROFILE="${profile}"\nBUFFER_PATH="${bufferPath}"\n\n`;
-        bufSh += `echo "1. Backing up existing buffer file..."\n`;
+        bufSh += `TARGET_SID="${sid}"\nTARGET_CLIENT="${client}"\nPROFILE="${profile}"\nBUFFER_PATH="${bufferPath}"\nLOG_FILE="sap_buffer_add_log_${ts}.log"\n\n`;
+        bufSh += `echo "1. Backing up existing buffer file..." | tee -a $LOG_FILE\n`;
         bufSh += `if [ -f "$BUFFER_PATH" ]; then\n`;
         bufSh += `  cp "$BUFFER_PATH" "${bufferPath}_backup_${ts}"\n`;
-        bufSh += `  if [ $? -ne 0 ]; then echo "Error backing up buffer file! Aborting."; exit 1; fi\n`;
-        bufSh += `  echo "Backup successfully created."\n`;
+        bufSh += `  if [ $? -ne 0 ]; then echo "Error backing up buffer file! Aborting." | tee -a $LOG_FILE; exit 1; fi\n`;
+        bufSh += `  echo "Backup successfully created." | tee -a $LOG_FILE\n`;
         bufSh += `fi\n\n`;
-        bufSh += `echo "2. Clearing existing buffer entries..."\n`;
+        bufSh += `echo "2. Clearing existing buffer entries..." | tee -a $LOG_FILE\n`;
         bufSh += `tp delfrombuffer ALL $TARGET_SID pf=$PROFILE > /dev/null 2>&1\n`;
         bufSh += `> "$BUFFER_PATH"\n`;
-        bufSh += `echo "Buffer cleared."\n\n`;
-        bufSh += `echo "3. Adding selected transports into buffer in sequence..."\n`;
+        bufSh += `echo "Buffer cleared." | tee -a $LOG_FILE\n\n`;
+        bufSh += `echo "3. Adding selected transports into buffer in sequence..." | tee -a $LOG_FILE\n`;
+        bufSh += `ADDED_COUNT=0\nFAILED_TRS=""\n\n`;
+
         transportQueue.forEach(item => {
-            bufSh += `echo "Adding ${item.tr} to buffer..."\n`;
-            bufSh += `tp addtobuffer ${item.tr} $TARGET_SID pf=$PROFILE\n`;
-            bufSh += `if [ $? -ne 0 ]; then echo "ERROR: Failed to add ${item.tr} to buffer! Aborting."; exit 1; fi\n`;
+            bufSh += `echo "Adding ${item.tr} (Client: $TARGET_CLIENT) to buffer..." | tee -a $LOG_FILE\n`;
+            bufSh += `tp addtobuffer ${item.tr} $TARGET_SID client=$TARGET_CLIENT pf=$PROFILE > /dev/null 2>&1\n`;
+            bufSh += `if [ $? -eq 0 ]; then\n`;
+            bufSh += `  ((ADDED_COUNT++))\n`;
+            bufSh += `else\n`;
+            bufSh += `  echo "ERROR: Failed to add ${item.tr} to buffer!" | tee -a $LOG_FILE\n`;
+            bufSh += `  FAILED_TRS="$FAILED_TRS ${item.tr}"\n`;
+            bufSh += `fi\n`;
         });
-        bufSh += `\necho "Buffer setup successfully completed! Proceed with running import script."\n`;
+
+        bufSh += `\necho "" | tee -a $LOG_FILE\n`;
+        bufSh += `echo "=== BUFFER SETUP SUMMARY ===" | tee -a $LOG_FILE\n`;
+        bufSh += `echo "Successfully added transports: $ADDED_COUNT" | tee -a $LOG_FILE\n`;
+        bufSh += `if [ -n "$FAILED_TRS" ]; then\n`;
+        bufSh += `  echo "Failed to add the following transport(s): $FAILED_TRS" | tee -a $LOG_FILE\n`;
+        bufSh += `else\n`;
+        bufSh += `  echo "All transports added to buffer with zero errors." | tee -a $LOG_FILE\n`;
+        bufSh += `fi\n`;
         downloadFile(bufSh, `${sid}_1_buffer_setup_${ts}.sh`, 'text/x-sh');
 
         // 2. Import Execution Script (.sh)
         let impSh = `#!/usr/bin/env bash\n# STEP 2: SAP Transport Import Script\n# Built by Pankaj Kapote\n\n`;
         impSh += `TARGET_SID="${sid}"\nTARGET_CLIENT="${client}"\nPROFILE="${profile}"\nLOG_FILE="sap_import_log_${ts}.csv"\n\n`;
         impSh += `START_TIME=$(date +%s)\n`;
-        impSh += `CNT_TOTAL=0; CNT_RC0=0; CNT_RC4=0; CNT_RC8=0; CNT_RC12=0; CNT_OTHER=0\n\n`;
+        impSh += `CNT_TOTAL=0; CNT_RC0=0; CNT_RC4=0; CNT_RC8=0; CNT_RC12=0; CNT_OTHER=0\n`;
+        impSh += `FAILED_RC8_LIST=""\nFAILED_RC12_LIST=""\n\n`;
         impSh += `echo "Date,Time,Transport_Number,Target_SID,Target_Client,U_Flag,Return_Code" > $LOG_FILE\n\n`;
         
         transportQueue.forEach(item => {
             impSh += `echo "Importing ${item.tr}..."\n`;
-            impSh += `tp import ${item.tr} $TARGET_SID client=$TARGET_CLIENT ${item.uflag} pf=$PROFILE\n`;
+            impSh += `tp import ${item.tr} $TARGET_SID client=$TARGET_CLIENT ${item.uflag} pf=$PROFILE > /dev/null 2>&1\n`;
             impSh += `RC=$?\n`;
             impSh += `echo "$(date +%Y-%m-%d),$(date +%H:%M:%S),${item.tr},$TARGET_SID,$TARGET_CLIENT,${item.uflag},$RC" >> $LOG_FILE\n`;
             impSh += `((CNT_TOTAL++))\n`;
-            impSh += `case $RC in 0) ((CNT_RC0++));; 4) ((CNT_RC4++));; 8) ((CNT_RC8++));; 12) ((CNT_RC12++));; *) ((CNT_OTHER++));; esac\n`;
+            impSh += `case $RC in\n`;
+            impSh += `  0) ((CNT_RC0++));;\n`;
+            impSh += `  4) ((CNT_RC4++));;\n`;
+            impSh += `  8) ((CNT_RC8++)); FAILED_RC8_LIST="$FAILED_RC8_LIST ${item.tr}";;\n`;
+            impSh += `  12) ((CNT_RC12++)); FAILED_RC12_LIST="$FAILED_RC12_LIST ${item.tr}";;\n`;
+            impSh += `  *) ((CNT_OTHER++));;\n`;
+            impSh += `esac\n`;
             
             if (stopOnError) {
                 impSh += `if [ $RC -eq 8 ] || [ $RC -eq 12 ]; then\n`;
@@ -590,10 +619,12 @@
         impSh += `echo "=== SUMMARY BLOCK ===" >> $LOG_FILE\n`;
         impSh += `echo "Total Processed,$CNT_TOTAL" >> $LOG_FILE\n`;
         impSh += `echo "Elapsed Time (Minutes),$ELAPSED_MIN" >> $LOG_FILE\n`;
-        impSh += `echo "RC 0,$CNT_RC0" >> $LOG_FILE\n`;
-        impSh += `echo "RC 4,$CNT_RC4" >> $LOG_FILE\n`;
-        impSh += `echo "RC 8,$CNT_RC8" >> $LOG_FILE\n`;
-        impSh += `echo "RC 12,$CNT_RC12" >> $LOG_FILE\n`;
+        impSh += `echo "RC 0 Count,$CNT_RC0" >> $LOG_FILE\n`;
+        impSh += `echo "RC 4 Count,$CNT_RC4" >> $LOG_FILE\n`;
+        impSh += `echo "RC 8 Count,$CNT_RC8" >> $LOG_FILE\n`;
+        impSh += `echo "RC 12 Count,$CNT_RC12" >> $LOG_FILE\n`;
+        impSh += `if [ -n "$FAILED_RC8_LIST" ]; then echo "Transports with RC 8,$FAILED_RC8_LIST" >> $LOG_FILE; fi\n`;
+        impSh += `if [ -n "$FAILED_RC12_LIST" ]; then echo "Transports with RC 12,$FAILED_RC12_LIST" >> $LOG_FILE; fi\n`;
         impSh += `echo "Transport import sequence completed. Log written to $LOG_FILE"\n`;
         downloadFile(impSh, `${sid}_2_import_transports_${ts}.sh`, 'text/x-sh');
     });
@@ -605,45 +636,56 @@
         const client = document.getElementById('targetClient').value;
         const profile = `${transDir}\\bin\\TP_DOMAIN_${sid}.PFL`;
         const bufferPath = `${transDir}\\buffer\\${sid}`;
-        const stopOnError = document.getElementById('errorHandlingStrategy').value === 'prompt';
+        const stopOnError = document.querySelector('input[name="errorHandling"]:checked').value === 'prompt';
         const ts = getFormattedTimestamp();
 
         // 1. Buffer Setup Script (.ps1)
         let bufPs = `# STEP 1: SAP Buffer Backup & Addition Script (PowerShell)\n# Built by Pankaj Kapote\n\n`;
-        bufPs += `$TargetSID = "${sid}"\n$Profile = "${profile}"\n$BufferPath = "${bufferPath}"\n\n`;
-        bufPs += `Write-Host "1. Backing up buffer file..." -ForegroundColor Cyan\n`;
+        bufPs += `$TargetSID = "${sid}"\n$TargetClient = "${client}"\n$Profile = "${profile}"\n$BufferPath = "${bufferPath}"\n$LogFile = "sap_buffer_add_log_${ts}.log"\n\n`;
+        bufPs += `"1. Backing up buffer file..." | Out-File $LogFile -Append\n`;
         bufPs += `if (Test-Path $BufferPath) {\n`;
         bufPs += `  Copy-Item $BufferPath "${bufferPath}_backup_${ts}"\n`;
         bufPs += `  if (-not $?) { Write-Host "Error backing up buffer file! Aborting." -ForegroundColor Red; exit }\n`;
-        bufPs += `  Write-Host "Backup created successfully." -ForegroundColor Green\n`;
         bufPs += `}\n\n`;
-        bufPs += `Write-Host "2. Clearing existing buffer entries..." -ForegroundColor Cyan\n`;
+        bufPs += `"2. Clearing existing buffer entries..." | Out-File $LogFile -Append\n`;
         bufPs += `& tp delfrombuffer ALL $TargetSID "pf=$Profile" *>$null\n`;
-        bufPs += `Clear-Content $BufferPath -ErrorAction SilentlyContinue\n`;
-        bufPs += `Write-Host "Buffer cleared." -ForegroundColor Green\n\n`;
-        bufPs += `Write-Host "3. Adding selected transports into buffer..." -ForegroundColor Cyan\n`;
+        bufPs += `Clear-Content $BufferPath -ErrorAction SilentlyContinue\n\n`;
+        bufPs += `"3. Adding selected transports into buffer..." | Out-File $LogFile -Append\n`;
+        bufPs += `$AddedCount = 0\n$FailedTRs = @()\n\n`;
+
         transportQueue.forEach(item => {
-            bufPs += `Write-Host "Adding ${item.tr} to buffer..."\n`;
-            bufPs += `& tp addtobuffer ${item.tr} $TargetSID "pf=$Profile"\n`;
-            bufPs += `if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: Failed to add ${item.tr} to buffer! Aborting." -ForegroundColor Red; exit }\n`;
+            bufPs += `Write-Host "Adding ${item.tr} (Client: $TargetClient) to buffer..."\n`;
+            bufPs += `& tp addtobuffer ${item.tr} $TargetSID "client=$TargetClient" "pf=$Profile" *>$null\n`;
+            bufPs += `if ($LASTEXITCODE -eq 0) { $AddedCount++ } else { $FailedTRs += "${item.tr}" }\n`;
         });
-        bufPs += `\nWrite-Host "Buffer setup completed successfully! Proceed with running import script." -ForegroundColor Green\n`;
+
+        bufPs += `\n"" | Out-File $LogFile -Append\n`;
+        bufPs += `"=== BUFFER SETUP SUMMARY ===" | Out-File $LogFile -Append\n`;
+        bufPs += `"Successfully added transports: $AddedCount" | Out-File $LogFile -Append\n`;
+        bufPs += `if ($FailedTRs.Count -gt 0) { "Failed transports: $($FailedTRs -join ', ')" | Out-File $LogFile -Append } else { "All transports added to buffer successfully." | Out-File $LogFile -Append }\n`;
         downloadFile(bufPs, `${sid}_1_buffer_setup_${ts}.ps1`, 'text/plain');
 
         // 2. Import Execution Script (.ps1)
         let impPs = `# STEP 2: SAP Transport Import Script (PowerShell)\n# Built by Pankaj Kapote\n\n`;
         impPs += `$TargetSID = "${sid}"\n$TargetClient = "${client}"\n$Profile = "${profile}"\n$LogFile = "sap_import_log_${ts}.csv"\n`;
         impPs += `$StartTime = Get-Date\n`;
-        impPs += `$CntTotal=0; $CntRC0=0; $CntRC4=0; $CntRC8=0; $CntRC12=0; $CntOther=0\n\n`;
+        impPs += `$CntTotal=0; $CntRC0=0; $CntRC4=0; $CntRC8=0; $CntRC12=0; $CntOther=0\n`;
+        impPs += `$FailedRC8 = @()\n$FailedRC12 = @()\n\n`;
         impPs += `"Date,Time,Transport_Number,Target_SID,Target_Client,U_Flag,Return_Code" | Out-File $LogFile\n\n`;
         
         transportQueue.forEach(item => {
             impPs += `Write-Host "Importing ${item.tr}..." -ForegroundColor Yellow\n`;
-            impPs += `& tp import ${item.tr} $TargetSID "client=$TargetClient" ${item.uflag} "pf=$Profile"\n`;
+            impPs += `& tp import ${item.tr} $TargetSID "client=$TargetClient" ${item.uflag} "pf=$Profile" *>$null\n`;
             impPs += `$RC = $LASTEXITCODE\n`;
             impPs += `"$(Get-Date -Format 'yyyy-MM-dd'),$(Get-Date -Format 'HH:mm:ss'),${item.tr},$TargetSID,$TargetClient,${item.uflag},$RC" | Out-File $LogFile -Append\n`;
             impPs += `$CntTotal++\n`;
-            impPs += `switch ($RC) { 0 {$CntRC0++} 4 {$CntRC4++} 8 {$CntRC8++} 12 {$CntRC12++} default {$CntOther++} }\n`;
+            impPs += `switch ($RC) {\n`;
+            impPs += `  0 { $CntRC0++ }\n`;
+            impPs += `  4 { $CntRC4++ }\n`;
+            impPs += `  8 { $CntRC8++; $FailedRC8 += "${item.tr}" }\n`;
+            impPs += `  12 { $CntRC12++; $FailedRC12 += "${item.tr}" }\n`;
+            impPs += `  default { $CntOther++ }\n`;
+            impPs += `}\n`;
 
             if (stopOnError) {
                 impPs += `if ($RC -eq 8 -or $RC -eq 12) {\n`;
@@ -663,10 +705,12 @@
         impPs += `"=== SUMMARY BLOCK ===" | Out-File $LogFile -Append\n`;
         impPs += `"Total Processed,$CntTotal" | Out-File $LogFile -Append\n`;
         impPs += `"Elapsed Time (Minutes),$ElapsedMin" | Out-File $LogFile -Append\n`;
-        impPs += `"RC 0,$CntRC0" | Out-File $LogFile -Append\n`;
-        impPs += `"RC 4,$CntRC4" | Out-File $LogFile -Append\n`;
-        impPs += `"RC 8,$CntRC8" | Out-File $LogFile -Append\n`;
-        impPs += `"RC 12,$CntRC12" | Out-File $LogFile -Append\n`;
+        impPs += `"RC 0 Count,$CntRC0" | Out-File $LogFile -Append\n`;
+        impPs += `"RC 4 Count,$CntRC4" | Out-File $LogFile -Append\n`;
+        impPs += `"RC 8 Count,$CntRC8" | Out-File $LogFile -Append\n`;
+        impPs += `"RC 12 Count,$CntRC12" | Out-File $LogFile -Append\n`;
+        impPs += `if ($FailedRC8.Count -gt 0) { "Transports with RC 8,$($FailedRC8 -join ' ')" | Out-File $LogFile -Append }\n`;
+        impPs += `if ($FailedRC12.Count -gt 0) { "Transports with RC 12,$($FailedRC12 -join ' ')" | Out-File $LogFile -Append }\n`;
         impPs += `Write-Host "Transport import sequence completed. Log saved to $LogFile" -ForegroundColor Green\n`;
         downloadFile(impPs, `${sid}_2_import_transports_${ts}.ps1`, 'text/plain');
     });
@@ -678,41 +722,50 @@
         const client = document.getElementById('targetClient').value;
         const profile = `${transDir}\\bin\\TP_DOMAIN_${sid}.PFL`;
         const bufferPath = `${transDir}\\buffer\\${sid}`;
-        const stopOnError = document.getElementById('errorHandlingStrategy').value === 'prompt';
+        const stopOnError = document.querySelector('input[name="errorHandling"]:checked').value === 'prompt';
         const ts = getFormattedTimestamp();
 
         // 1. Buffer Setup Script (.bat)
         let bufBat = `@echo off\nREM STEP 1: SAP Buffer Backup & Addition Script (Windows Batch)\nREM Built by Pankaj Kapote\n\n`;
-        bufBat += `set TARGET_SID=${sid}\nset PROFILE=${profile}\nset BUFFER_PATH=${bufferPath}\n\n`;
+        bufBat += `set TARGET_SID=${sid}\nset TARGET_CLIENT=${client}\nset PROFILE=${profile}\nset BUFFER_PATH=${bufferPath}\n\n`;
         bufBat += `echo 1. Backing up existing buffer file...\n`;
         bufBat += `if exist "%BUFFER_PATH%" (\n`;
         bufBat += `    copy "%BUFFER_PATH%" "%BUFFER_PATH%_backup_${ts}.bak" >nul\n`;
         bufBat += `    if %ERRORLEVEL% NEQ 0 ( echo Error backing up buffer file! & goto :ABORT )\n`;
-        bufBat += `    echo Backup created successfully.\n`;
         bufBat += `)\n\n`;
         bufBat += `echo 2. Clearing existing buffer entries...\n`;
         bufBat += `tp delfrombuffer ALL %TARGET_SID% pf=%PROFILE% >nul 2>&1\n`;
-        bufBat += `type nul > "%BUFFER_PATH%"\n`;
-        bufBat += `echo Buffer cleared.\n\n`;
+        bufBat += `type nul > "%BUFFER_PATH%"\n\n`;
         bufBat += `echo 3. Adding selected transports into buffer...\n`;
+        bufBat += `set ADDED_COUNT=0\nset FAILED_LIST=\n\n`;
+
         transportQueue.forEach(item => {
             bufBat += `echo Adding ${item.tr} to buffer...\n`;
-            bufBat += `tp addtobuffer ${item.tr} %TARGET_SID% pf=%PROFILE%\n`;
-            bufBat += `if %ERRORLEVEL% NEQ 0 ( echo ERROR: Failed to add ${item.tr} to buffer! & goto :ABORT )\n`;
+            bufBat += `tp addtobuffer ${item.tr} %TARGET_SID% client=%TARGET_CLIENT% pf=%PROFILE% >nul 2>&1\n`;
+            bufBat += `if %ERRORLEVEL% EQU 0 (\n`;
+            bufBat += `    set /a ADDED_COUNT+=1\n`;
+            bufBat += `) else (\n`;
+            bufBat += `    echo ERROR: Failed to add ${item.tr}\n`;
+            bufBat += `    set FAILED_LIST=%FAILED_LIST% ${item.tr}\n`;
+            bufBat += `)\n`;
         });
-        bufBat += `\necho Buffer setup completed successfully! Proceed with import script.\ngoto :END\n:ABORT\necho Buffer setup failed!\n:END\n`;
+
+        bufBat += `\necho.\necho === BUFFER SETUP SUMMARY ===\necho Successfully added: %ADDED_COUNT%\necho Failed TRs: %FAILED_LIST%\ngoto :END\n:ABORT\necho Buffer setup failed!\n:END\n`;
         downloadFile(bufBat, `${sid}_1_buffer_setup_${ts}.bat`, 'text/plain');
 
         // 2. Import Execution Script (.bat)
         let impBat = `@echo off\nREM STEP 2: SAP Transport Import Script (Windows Batch)\nREM Built by Pankaj Kapote\n\n`;
         impBat += `set TARGET_SID=${sid}\nset TARGET_CLIENT=${client}\nset PROFILE=${profile}\nset LOG_FILE=sap_import_log_${ts}.csv\n\n`;
+        impBat += `set CNT_RC8=0\nset CNT_RC12=0\nset RC8_LIST=\nset RC12_LIST=\n\n`;
         impBat += `echo Date,Time,Transport_Number,Target_SID,Target_Client,U_Flag,Return_Code > %LOG_FILE%\n\n`;
         
         transportQueue.forEach(item => {
             impBat += `echo Importing ${item.tr}...\n`;
-            impBat += `tp import ${item.tr} %TARGET_SID% client=%TARGET_CLIENT% ${item.uflag} pf=%PROFILE%\n`;
+            impBat += `tp import ${item.tr} %TARGET_SID% client=%TARGET_CLIENT% ${item.uflag} pf=%PROFILE% >nul 2>&1\n`;
             impBat += `set RC=%ERRORLEVEL%\n`;
             impBat += `echo %DATE%,%TIME%,${item.tr},%TARGET_SID%,%TARGET_CLIENT%,${item.uflag},%RC% >> %LOG_FILE%\n`;
+            impBat += `if %RC% EQU 8 ( set /a CNT_RC8+=1 & set RC8_LIST=%RC8_LIST% ${item.tr} )\n`;
+            impBat += `if %RC% EQU 12 ( set /a CNT_RC12+=1 & set RC12_LIST=%RC12_LIST% ${item.tr} )\n`;
             
             if (stopOnError) {
                 impBat += `if %RC% GEQ 8 (\n`;
@@ -724,7 +777,10 @@
             impBat += `\n`;
         });
 
-        impBat += `echo Import process completed.\ngoto :END\n:ABORT\necho Import sequence aborted.\n:END\n`;
+        impBat += `echo.\necho === SUMMARY BLOCK === >> %LOG_FILE%\n`;
+        impBat += `if defined RC8_LIST echo Transports with RC 8: %RC8_LIST% >> %LOG_FILE%\n`;
+        impBat += `if defined RC12_LIST echo Transports with RC 12: %RC12_LIST% >> %LOG_FILE%\n`;
+        impBat += `echo Import process completed. Summary logged to %LOG_FILE%\ngoto :END\n:ABORT\necho Import sequence aborted.\n:END\n`;
         downloadFile(impBat, `${sid}_2_import_transports_${ts}.bat`, 'text/plain');
     });
 </script>
