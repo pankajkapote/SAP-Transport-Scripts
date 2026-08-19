@@ -250,8 +250,9 @@
     <div class="tool-info">
         <h4>Buffer & Import Automation Strategy</h4>
         <ul>
+            <li><strong>Timestamped Execution Logs & Backups:</strong> Every buffer backup file, buffer addition log, and import CSV report is tagged dynamically at runtime with <code>YYYYMMDD_HHMMSS</code> timestamps to prevent file overwrites.</li>
             <li><strong>Decoupled Domain SID vs. Target SID:</strong> Specify the <strong>Transport Domain SID</strong> independently from the <strong>Target System SID</strong> so the correct profile path (`TP_DOMAIN_<DOM_SID>.PFL`) is used when target systems are in a centralized domain (e.g. importing into `PRD` under domain `DEV`).</li>
-            <li><strong>Preserved Input Sequence & Multiple Additions:</strong> Transports are queued in exact input sequence. Repetitions are tagged (`x1`, `x2`...). `tp addtobuffer` runs with unconditional flags (`u0`) so repeat transports and existing buffer items are marked for re-import without error.</li>
+            <li><strong>Preserved Sequence & Re-import Flag:</strong> Transports are queued in exact input sequence. Repetitions are tagged (`x1`, `x2`...). `tp addtobuffer` runs with unconditional flags (`u0`) so repeat transports and existing buffer items are marked for re-import without error.</li>
             <li><strong>Configurable Buffer Cleanup:</strong> Choose whether to clean the target buffer before adding or simply append transports to the existing system buffer.</li>
             <li><strong>Concise Import Error Summaries:</strong> Execution summary logs record RC counts and list <strong>only RC 8 and RC 12 requests</strong>.</li>
         </ul>
@@ -565,69 +566,72 @@
 
         // 1. Buffer Setup Script (.sh)
         let bufSh = `#!/usr/bin/env bash\n# STEP 1: SAP Buffer Setup Script\n# Built by Pankaj Kapote\n\n`;
-        bufSh += `TARGET_SID="${sid}"\nDOMAIN_SID="${domSid}"\nTARGET_CLIENT="${client}"\nPROFILE="${profile}"\nBUFFER_PATH="${bufferPath}"\nLOG_FILE="sap_buffer_add_log_${ts}.log"\n\n`;
+        bufSh += `TARGET_SID="${sid}"\nDOMAIN_SID="${domSid}"\nTARGET_CLIENT="${client}"\nPROFILE="${profile}"\nBUFFER_PATH="${bufferPath}"\n`;
+        bufSh += `RUN_TS=$(date +%Y%m%d_%H%M%S)\nLOG_FILE="sap_buffer_add_log_\${RUN_TS}.log"\n\n`;
         
-        bufSh += `echo "1. Backing up existing buffer file..." | tee -a $LOG_FILE\n`;
+        bufSh += `echo "1. Backing up existing buffer file..." | tee -a "$LOG_FILE"\n`;
         bufSh += `if [ -f "$BUFFER_PATH" ]; then\n`;
-        bufSh += `  cp "$BUFFER_PATH" "${bufferPath}_backup_${ts}"\n`;
-        bufSh += `  if [ $? -ne 0 ]; then echo "Error backing up buffer file! Aborting." | tee -a $LOG_FILE; exit 1; fi\n`;
-        bufSh += `  echo "Backup created successfully." | tee -a $LOG_FILE\n`;
+        bufSh += `  cp "$BUFFER_PATH" "\${BUFFER_PATH}_backup_\${RUN_TS}"\n`;
+        bufSh += `  if [ $? -ne 0 ]; then echo "Error backing up buffer file! Aborting." | tee -a "$LOG_FILE"; exit 1; fi\n`;
+        bufSh += `  echo "Backup successfully created: \${BUFFER_PATH}_backup_\${RUN_TS}" | tee -a "$LOG_FILE"\n`;
         bufSh += `fi\n\n`;
 
         if (shouldCleanBuffer) {
-            bufSh += `echo "2. Clearing existing buffer entries..." | tee -a $LOG_FILE\n`;
+            bufSh += `echo "2. Clearing existing buffer entries..." | tee -a "$LOG_FILE"\n`;
             bufSh += `tp delfrombuffer ALL $TARGET_SID pf=$PROFILE > /dev/null 2>&1\n`;
             bufSh += `> "$BUFFER_PATH"\n`;
-            bufSh += `echo "Buffer cleared." | tee -a $LOG_FILE\n\n`;
+            bufSh += `echo "Buffer cleared." | tee -a "$LOG_FILE"\n\n`;
         } else {
-            bufSh += `echo "2. Retaining existing buffer entries (No cleanbuffer requested)..." | tee -a $LOG_FILE\n\n`;
+            bufSh += `echo "2. Retaining existing buffer entries (No cleanbuffer requested)..." | tee -a "$LOG_FILE"\n\n`;
         }
 
-        bufSh += `echo "3. Adding selected transports into buffer (with re-import flag u0)..." | tee -a $LOG_FILE\n`;
+        bufSh += `echo "3. Adding selected transports into buffer (with re-import flag u0)..." | tee -a "$LOG_FILE"\n`;
         bufSh += `ADDED_COUNT=0\nFAILED_TRS=""\n\n`;
 
         transportQueue.forEach(item => {
-            bufSh += `echo "Adding ${item.tr} (Client: $TARGET_CLIENT) to buffer..." | tee -a $LOG_FILE\n`;
+            bufSh += `echo "Adding ${item.tr} (Client: $TARGET_CLIENT) to buffer..." | tee -a "$LOG_FILE"\n`;
             bufSh += `tp addtobuffer ${item.tr} $TARGET_SID client=$TARGET_CLIENT u0 pf=$PROFILE > /dev/null 2>&1\n`;
             bufSh += `if [ $? -eq 0 ]; then\n`;
             bufSh += `  ((ADDED_COUNT++))\n`;
             bufSh += `else\n`;
-            bufSh += `  echo "ERROR: Failed to add ${item.tr} to buffer!" | tee -a $LOG_FILE\n`;
+            bufSh += `  echo "ERROR: Failed to add ${item.tr} to buffer!" | tee -a "$LOG_FILE"\n`;
             bufSh += `  FAILED_TRS="$FAILED_TRS ${item.tr}"\n`;
             bufSh += `fi\n`;
         });
 
-        bufSh += `\necho "" | tee -a $LOG_FILE\n`;
-        bufSh += `echo "=== BUFFER SETUP SUMMARY ===" | tee -a $LOG_FILE\n`;
-        bufSh += `echo "Successfully added transports: $ADDED_COUNT" | tee -a $LOG_FILE\n`;
+        bufSh += `\necho "" | tee -a "$LOG_FILE"\n`;
+        bufSh += `echo "=== BUFFER SETUP SUMMARY ===" | tee -a "$LOG_FILE"\n`;
+        bufSh += `echo "Successfully added transports: $ADDED_COUNT" | tee -a "$LOG_FILE"\n`;
         if (shouldCleanBuffer) {
             bufSh += `if [ -n "$FAILED_TRS" ]; then\n`;
-            bufSh += `  echo "Failed to add the following transport(s): $FAILED_TRS" | tee -a $LOG_FILE\n`;
+            bufSh += `  echo "Failed to add the following transport(s): $FAILED_TRS" | tee -a "$LOG_FILE"\n`;
             bufSh += `else\n`;
-            bufSh += `  echo "All transports successfully queued in buffer." | tee -a $LOG_FILE\n`;
+            bufSh += `  echo "All transports successfully queued in buffer." | tee -a "$LOG_FILE"\n`;
             bufSh += `fi\n`;
         } else {
             bufSh += `if [ -n "$FAILED_TRS" ]; then\n`;
-            bufSh += `  echo "Failed to add the following transport(s): $FAILED_TRS" | tee -a $LOG_FILE\n`;
+            bufSh += `  echo "Failed to add the following transport(s): $FAILED_TRS" | tee -a "$LOG_FILE"\n`;
             bufSh += `else\n`;
-            bufSh += `  echo "All transports successfully appended to buffer." | tee -a $LOG_FILE\n`;
+            bufSh += `  echo "All transports successfully appended to buffer." | tee -a "$LOG_FILE"\n`;
             bufSh += `fi\n`;
         }
+        bufSh += `echo "Log recorded to: $LOG_FILE"\n`;
         downloadFile(bufSh, `${sid}_1_buffer_setup_${ts}.sh`, 'text/x-sh');
 
         // 2. Import Execution Script (.sh)
         let impSh = `#!/usr/bin/env bash\n# STEP 2: SAP Transport Import Script\n# Built by Pankaj Kapote\n\n`;
-        impSh += `TARGET_SID="${sid}"\nDOMAIN_SID="${domSid}"\nTARGET_CLIENT="${client}"\nPROFILE="${profile}"\nLOG_FILE="sap_import_log_${ts}.csv"\n\n`;
+        impSh += `TARGET_SID="${sid}"\nDOMAIN_SID="${domSid}"\nTARGET_CLIENT="${client}"\nPROFILE="${profile}"\n`;
+        impSh += `RUN_TS=$(date +%Y%m%d_%H%M%S)\nLOG_FILE="sap_import_log_\${RUN_TS}.csv"\n\n`;
         impSh += `START_TIME=$(date +%s)\n`;
         impSh += `CNT_TOTAL=0; CNT_RC0=0; CNT_RC4=0; CNT_RC8=0; CNT_RC12=0; CNT_OTHER=0\n`;
         impSh += `FAILED_RC8_LIST=""\nFAILED_RC12_LIST=""\n\n`;
-        impSh += `echo "Date,Time,Transport_Number,Target_SID,Target_Client,U_Flag,Return_Code" > $LOG_FILE\n\n`;
+        impSh += `echo "Date,Time,Transport_Number,Target_SID,Target_Client,U_Flag,Return_Code" > "$LOG_FILE"\n\n`;
         
         transportQueue.forEach(item => {
             impSh += `echo "Importing ${item.tr}..."\n`;
             impSh += `tp import ${item.tr} $TARGET_SID client=$TARGET_CLIENT ${item.uflag} pf=$PROFILE > /dev/null 2>&1\n`;
             impSh += `RC=$?\n`;
-            impSh += `echo "$(date +%Y-%m-%d),$(date +%H:%M:%S),${item.tr},$TARGET_SID,$TARGET_CLIENT,${item.uflag},$RC" >> $LOG_FILE\n`;
+            impSh += `echo "$(date +%Y-%m-%d),$(date +%H:%M:%S),${item.tr},$TARGET_SID,$TARGET_CLIENT,${item.uflag},$RC" >> "$LOG_FILE"\n`;
             impSh += `((CNT_TOTAL++))\n`;
             impSh += `case $RC in\n`;
             impSh += `  0) ((CNT_RC0++));;\n`;
@@ -651,16 +655,16 @@
 
         impSh += `END_TIME=$(date +%s)\n`;
         impSh += `ELAPSED_MIN=$(( (END_TIME - START_TIME) / 60 ))\n`;
-        impSh += `echo "" >> $LOG_FILE\n`;
-        impSh += `echo "=== SUMMARY BLOCK ===" >> $LOG_FILE\n`;
-        impSh += `echo "Total Processed,$CNT_TOTAL" >> $LOG_FILE\n`;
-        impSh += `echo "Elapsed Time (Minutes),$ELAPSED_MIN" >> $LOG_FILE\n`;
-        impSh += `echo "RC 0 Count,$CNT_RC0" >> $LOG_FILE\n`;
-        impSh += `echo "RC 4 Count,$CNT_RC4" >> $LOG_FILE\n`;
-        impSh += `echo "RC 8 Count,$CNT_RC8" >> $LOG_FILE\n`;
-        impSh += `echo "RC 12 Count,$CNT_RC12" >> $LOG_FILE\n`;
-        impSh += `if [ -n "$FAILED_RC8_LIST" ]; then echo "Transports with RC 8,$FAILED_RC8_LIST" >> $LOG_FILE; fi\n`;
-        impSh += `if [ -n "$FAILED_RC12_LIST" ]; then echo "Transports with RC 12,$FAILED_RC12_LIST" >> $LOG_FILE; fi\n`;
+        impSh += `echo "" >> "$LOG_FILE"\n`;
+        impSh += `echo "=== SUMMARY BLOCK ===" >> "$LOG_FILE"\n`;
+        impSh += `echo "Total Processed,$CNT_TOTAL" >> "$LOG_FILE"\n`;
+        impSh += `echo "Elapsed Time (Minutes),$ELAPSED_MIN" >> "$LOG_FILE"\n`;
+        impSh += `echo "RC 0 Count,$CNT_RC0" >> "$LOG_FILE"\n`;
+        impSh += `echo "RC 4 Count,$CNT_RC4" >> "$LOG_FILE"\n`;
+        impSh += `echo "RC 8 Count,$CNT_RC8" >> "$LOG_FILE"\n`;
+        impSh += `echo "RC 12 Count,$CNT_RC12" >> "$LOG_FILE"\n`;
+        impSh += `if [ -n "$FAILED_RC8_LIST" ]; then echo "Transports with RC 8,$FAILED_RC8_LIST" >> "$LOG_FILE"; fi\n`;
+        impSh += `if [ -n "$FAILED_RC12_LIST" ]; then echo "Transports with RC 12,$FAILED_RC12_LIST" >> "$LOG_FILE"; fi\n`;
         impSh += `echo "Transport import sequence completed. Log written to $LOG_FILE"\n`;
         downloadFile(impSh, `${sid}_2_import_transports_${ts}.sh`, 'text/x-sh');
     });
@@ -679,12 +683,15 @@
 
         // 1. Buffer Setup Script (.ps1)
         let bufPs = `# STEP 1: SAP Buffer Setup Script (PowerShell)\n# Built by Pankaj Kapote\n\n`;
-        bufPs += `$TargetSID = "${sid}"\n$DomainSID = "${domSid}"\n$TargetClient = "${client}"\n$Profile = "${profile}"\n$BufferPath = "${bufferPath}"\n$LogFile = "sap_buffer_add_log_${ts}.log"\n\n`;
+        bufPs += `$TargetSID = "${sid}"\n$DomainSID = "${domSid}"\n$TargetClient = "${client}"\n$Profile = "${profile}"\n$BufferPath = "${bufferPath}"\n`;
+        bufPs += `$RunTS = Get-Date -Format 'yyyyMMdd_HHmmss'\n$LogFile = "sap_buffer_add_log_$RunTS.log"\n\n`;
         
         bufPs += `"1. Backing up buffer file..." | Out-File $LogFile -Append\n`;
         bufPs += `if (Test-Path $BufferPath) {\n`;
-        bufPs += `  Copy-Item $BufferPath "${bufferPath}_backup_${ts}"\n`;
+        bufPs += `  $BackupPath = "\${BufferPath}_backup_$RunTS"\n`;
+        bufPs += `  Copy-Item $BufferPath $BackupPath\n`;
         bufPs += `  if (-not $?) { Write-Host "Error backing up buffer file! Aborting." -ForegroundColor Red; exit }\n`;
+        bufPs += `  "Backup successfully created: $BackupPath" | Out-File $LogFile -Append\n`;
         bufPs += `}\n\n`;
 
         if (shouldCleanBuffer) {
@@ -708,11 +715,13 @@
         bufPs += `"=== BUFFER SETUP SUMMARY ===" | Out-File $LogFile -Append\n`;
         bufPs += `"Successfully added transports: $AddedCount" | Out-File $LogFile -Append\n`;
         bufPs += `if ($FailedTRs.Count -gt 0) { "Failed transports: $($FailedTRs -join ', ')" | Out-File $LogFile -Append } else { "All transports successfully queued in buffer." | Out-File $LogFile -Append }\n`;
+        bufPs += `Write-Host "Log recorded to: $LogFile" -ForegroundColor Green\n`;
         downloadFile(bufPs, `${sid}_1_buffer_setup_${ts}.ps1`, 'text/plain');
 
         // 2. Import Execution Script (.ps1)
         let impPs = `# STEP 2: SAP Transport Import Script (PowerShell)\n# Built by Pankaj Kapote\n\n`;
-        impPs += `$TargetSID = "${sid}"\n$DomainSID = "${domSid}"\n$TargetClient = "${client}"\n$Profile = "${profile}"\n$LogFile = "sap_import_log_${ts}.csv"\n`;
+        impPs += `$TargetSID = "${sid}"\n$DomainSID = "${domSid}"\n$TargetClient = "${client}"\n$Profile = "${profile}"\n`;
+        impPs += `$RunTS = Get-Date -Format 'yyyyMMdd_HHmmss'\n$LogFile = "sap_import_log_$RunTS.csv"\n`;
         impPs += `$StartTime = Get-Date\n`;
         impPs += `$CntTotal=0; $CntRC0=0; $CntRC4=0; $CntRC8=0; $CntRC12=0; $CntOther=0\n`;
         impPs += `$FailedRC8 = @()\n$FailedRC12 = @()\n\n`;
@@ -775,11 +784,16 @@
         // 1. Buffer Setup Script (.bat)
         let bufBat = `@echo off\nREM STEP 1: SAP Buffer Setup Script (Windows Batch)\nREM Built by Pankaj Kapote\n\n`;
         bufBat += `set TARGET_SID=${sid}\nset DOMAIN_SID=${domSid}\nset TARGET_CLIENT=${client}\nset PROFILE=${profile}\nset BUFFER_PATH=${bufferPath}\n\n`;
+        bufBat += `REM Generate runtime timestamp YYYYMMDD_HHMMSS\n`;
+        bufBat += `for /f "tokens=2 delims==" %%I in ('wmic os get localdatetime /value') do set dt=%%I\n`;
+        bufBat += `set RUN_TS=%dt:~0,8%_%dt:~8,6%\n`;
+        bufBat += `set LOG_FILE=sap_buffer_add_log_%RUN_TS%.log\n\n`;
         
         bufBat += `echo 1. Backing up existing buffer file...\n`;
         bufBat += `if exist "%BUFFER_PATH%" (\n`;
-        bufBat += `    copy "%BUFFER_PATH%" "%BUFFER_PATH%_backup_${ts}.bak" >nul\n`;
+        bufBat += `    copy "%BUFFER_PATH%" "%BUFFER_PATH%_backup_%RUN_TS%.bak" >nul\n`;
         bufBat += `    if %ERRORLEVEL% NEQ 0 ( echo Error backing up buffer file! & goto :ABORT )\n`;
+        bufBat += `    echo Backup created: %BUFFER_PATH%_backup_%RUN_TS%.bak >> %LOG_FILE%\n`;
         bufBat += `)\n\n`;
 
         if (shouldCleanBuffer) {
@@ -804,12 +818,17 @@
             bufBat += `)\n`;
         });
 
-        bufBat += `\necho.\necho === BUFFER SETUP SUMMARY ===\necho Successfully added: %ADDED_COUNT%\necho Failed TRs: %FAILED_LIST%\ngoto :END\n:ABORT\necho Buffer setup failed!\n:END\n`;
+        bufBat += `\necho.\necho === BUFFER SETUP SUMMARY === >> %LOG_FILE%\necho Successfully added: %ADDED_COUNT% >> %LOG_FILE%\necho Failed TRs: %FAILED_LIST% >> %LOG_FILE%\n`;
+        bufBat += `echo Buffer setup completed. Log recorded in %LOG_FILE%\ngoto :END\n:ABORT\necho Buffer setup failed!\n:END\n`;
         downloadFile(bufBat, `${sid}_1_buffer_setup_${ts}.bat`, 'text/plain');
 
         // 2. Import Execution Script (.bat)
         let impBat = `@echo off\nREM STEP 2: SAP Transport Import Script (Windows Batch)\nREM Built by Pankaj Kapote\n\n`;
-        impBat += `set TARGET_SID=${sid}\nset DOMAIN_SID=${domSid}\nset TARGET_CLIENT=${client}\nset PROFILE=${profile}\nset LOG_FILE=sap_import_log_${ts}.csv\n\n`;
+        impBat += `set TARGET_SID=${sid}\nset DOMAIN_SID=${domSid}\nset TARGET_CLIENT=${client}\nset PROFILE=${profile}\n\n`;
+        impBat += `REM Generate runtime timestamp YYYYMMDD_HHMMSS\n`;
+        impBat += `for /f "tokens=2 delims==" %%I in ('wmic os get localdatetime /value') do set dt=%%I\n`;
+        impBat += `set RUN_TS=%dt:~0,8%_%dt:~8,6%\n`;
+        impBat += `set LOG_FILE=sap_import_log_%RUN_TS%.csv\n\n`;
         impBat += `set CNT_RC8=0\nset CNT_RC12=0\nset RC8_LIST=\nset RC12_LIST=\n\n`;
         impBat += `echo Date,Time,Transport_Number,Target_SID,Target_Client,U_Flag,Return_Code > %LOG_FILE%\n\n`;
         
