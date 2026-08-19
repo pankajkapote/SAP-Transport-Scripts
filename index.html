@@ -250,9 +250,9 @@
     <div class="tool-info">
         <h4>Buffer & Import Automation Strategy</h4>
         <ul>
-            <li><strong>Preserved Input Sequence:</strong> All transports are generated exactly in the order provided. Duplicates are retained and explicitly flagged with repeat tags (`x1`, `x2`, `x3`...) so you can manually review and choose whether to remove them.</li>
-            <li><strong>Step 1 (Buffer Setup Script):</strong> Backs up buffer file (`/usr/sap/trans/buffer/<SID>`), clears entries via `tp delfrombuffer ALL <SID>`, and adds transports specifying target client (`client=<CLIENT>`). Outputs summary of successfully added vs. failed TRs.</li>
-            <li><strong>Step 2 (Import Execution Script):</strong> Performs `tp import` sequentially, logs execution data to CSV, and outputs a summary detailing RC counts while explicitly listing **only RC8 and RC12 failed transports**.</li>
+            <li><strong>Preserved Input Sequence & Multiple Additions:</strong> Transports are queued in exact input sequence. Repetitions are tagged (`x1`, `x2`...). `tp addtobuffer` runs with unconditional flags (`u0`) so repeat transports and existing buffer items are marked for re-import without error.</li>
+            <li><strong>Configurable Buffer Cleanup:</strong> Choose whether to clean the target buffer before adding or simply append transports to the existing system buffer.</li>
+            <li><strong>Concise Import Error Summaries:</strong> Execution summary logs record RC counts and list <strong>only RC 8 and RC 12 requests</strong>.</li>
         </ul>
     </div>
 
@@ -296,16 +296,28 @@
 
         <!-- Script Export Options -->
         <div class="card">
-            <h3>3. Error Handling & Script Export</h3>
+            <h3>3. Buffer & Import Strategy</h3>
             <div class="form-group">
+                <label>Buffer Preparation Strategy</label>
+                <label class="radio-option">
+                    <input type="radio" name="bufferCleanStrategy" value="clean" checked>
+                    Backup & clean buffer before adding new list
+                </label>
+                <label class="radio-option">
+                    <input type="radio" name="bufferCleanStrategy" value="retain">
+                    Do not clean buffer (Append/Re-add to existing buffer)
+                </label>
+            </div>
+
+            <div class="form-group" style="margin-top: 14px;">
                 <label>Import Strategy on RC 8 or 12</label>
                 <label class="radio-option">
                     <input type="radio" name="errorHandling" value="prompt" checked>
-                    Stop & prompt for double confirmation before proceeding
+                    Stop & prompt for double confirmation
                 </label>
                 <label class="radio-option">
                     <input type="radio" name="errorHandling" value="ignore">
-                    Keep importing transports irrespective of RC code
+                    Keep importing irrespective of RC code
                 </label>
             </div>
             
@@ -517,6 +529,7 @@
             document.getElementById('targetClient').value = '100';
             document.getElementById('transDir').value = '/usr/sap/trans';
             document.getElementById('defaultUFlag').value = 'u12';
+            document.querySelector('input[name="bufferCleanStrategy"][value="clean"]').checked = true;
             document.querySelector('input[name="errorHandling"][value="prompt"]').checked = true;
             document.getElementById('alertBox').style.display = 'none';
             transportQueue = [];
@@ -532,35 +545,43 @@
         a.click();
     }
 
-    // GENERATE SEPARATE LINUX/UNIX BASH SCRIPTS
+    // GENERATE LINUX/UNIX BASH SCRIPTS
     document.getElementById('genBashBtn').addEventListener('click', () => {
         const sid = document.getElementById('targetSid').value;
         const transDir = document.getElementById('transDir').value;
         const client = document.getElementById('targetClient').value;
         const profile = `${transDir}/bin/TP_DOMAIN_${sid}.PFL`;
         const bufferPath = `${transDir}/buffer/${sid}`;
+        const shouldCleanBuffer = document.querySelector('input[name="bufferCleanStrategy"]:checked').value === 'clean';
         const stopOnError = document.querySelector('input[name="errorHandling"]:checked').value === 'prompt';
         const ts = getFormattedTimestamp();
 
         // 1. Buffer Setup Script (.sh)
-        let bufSh = `#!/usr/bin/env bash\n# STEP 1: SAP Buffer Backup & Addition Script\n# Built by Pankaj Kapote\n\n`;
+        let bufSh = `#!/usr/bin/env bash\n# STEP 1: SAP Buffer Setup Script\n# Built by Pankaj Kapote\n\n`;
         bufSh += `TARGET_SID="${sid}"\nTARGET_CLIENT="${client}"\nPROFILE="${profile}"\nBUFFER_PATH="${bufferPath}"\nLOG_FILE="sap_buffer_add_log_${ts}.log"\n\n`;
+        
         bufSh += `echo "1. Backing up existing buffer file..." | tee -a $LOG_FILE\n`;
         bufSh += `if [ -f "$BUFFER_PATH" ]; then\n`;
         bufSh += `  cp "$BUFFER_PATH" "${bufferPath}_backup_${ts}"\n`;
         bufSh += `  if [ $? -ne 0 ]; then echo "Error backing up buffer file! Aborting." | tee -a $LOG_FILE; exit 1; fi\n`;
-        bufSh += `  echo "Backup successfully created." | tee -a $LOG_FILE\n`;
+        bufSh += `  echo "Backup created successfully." | tee -a $LOG_FILE\n`;
         bufSh += `fi\n\n`;
-        bufSh += `echo "2. Clearing existing buffer entries..." | tee -a $LOG_FILE\n`;
-        bufSh += `tp delfrombuffer ALL $TARGET_SID pf=$PROFILE > /dev/null 2>&1\n`;
-        bufSh += `> "$BUFFER_PATH"\n`;
-        bufSh += `echo "Buffer cleared." | tee -a $LOG_FILE\n\n`;
-        bufSh += `echo "3. Adding selected transports into buffer in sequence..." | tee -a $LOG_FILE\n`;
+
+        if (shouldCleanBuffer) {
+            bufSh += `echo "2. Clearing existing buffer entries..." | tee -a $LOG_FILE\n`;
+            bufSh += `tp delfrombuffer ALL $TARGET_SID pf=$PROFILE > /dev/null 2>&1\n`;
+            bufSh += `> "$BUFFER_PATH"\n`;
+            bufSh += `echo "Buffer cleared." | tee -a $LOG_FILE\n\n`;
+        } else {
+            bufSh += `echo "2. Retaining existing buffer entries (No cleanbuffer requested)..." | tee -a $LOG_FILE\n\n`;
+        }
+
+        bufSh += `echo "3. Adding selected transports into buffer (with re-import flag u0)..." | tee -a $LOG_FILE\n`;
         bufSh += `ADDED_COUNT=0\nFAILED_TRS=""\n\n`;
 
         transportQueue.forEach(item => {
             bufSh += `echo "Adding ${item.tr} (Client: $TARGET_CLIENT) to buffer..." | tee -a $LOG_FILE\n`;
-            bufSh += `tp addtobuffer ${item.tr} $TARGET_SID client=$TARGET_CLIENT pf=$PROFILE > /dev/null 2>&1\n`;
+            bufSh += `tp addtobuffer ${item.tr} $TARGET_SID client=$TARGET_CLIENT u0 pf=$PROFILE > /dev/null 2>&1\n`;
             bufSh += `if [ $? -eq 0 ]; then\n`;
             bufSh += `  ((ADDED_COUNT++))\n`;
             bufSh += `else\n`;
@@ -575,7 +596,7 @@
         bufSh += `if [ -n "$FAILED_TRS" ]; then\n`;
         bufSh += `  echo "Failed to add the following transport(s): $FAILED_TRS" | tee -a $LOG_FILE\n`;
         bufSh += `else\n`;
-        bufSh += `  echo "All transports added to buffer with zero errors." | tee -a $LOG_FILE\n`;
+        bufSh += `  echo "All transports successfully queued in buffer." | tee -a $LOG_FILE\n`;
         bufSh += `fi\n`;
         downloadFile(bufSh, `${sid}_1_buffer_setup_${ts}.sh`, 'text/x-sh');
 
@@ -629,40 +650,48 @@
         downloadFile(impSh, `${sid}_2_import_transports_${ts}.sh`, 'text/x-sh');
     });
 
-    // GENERATE SEPARATE POWERSHELL SCRIPTS (.ps1)
+    // GENERATE POWERSHELL SCRIPTS (.ps1)
     document.getElementById('genPsBtn').addEventListener('click', () => {
         const sid = document.getElementById('targetSid').value;
         const transDir = document.getElementById('transDir').value;
         const client = document.getElementById('targetClient').value;
         const profile = `${transDir}\\bin\\TP_DOMAIN_${sid}.PFL`;
         const bufferPath = `${transDir}\\buffer\\${sid}`;
+        const shouldCleanBuffer = document.querySelector('input[name="bufferCleanStrategy"]:checked').value === 'clean';
         const stopOnError = document.querySelector('input[name="errorHandling"]:checked').value === 'prompt';
         const ts = getFormattedTimestamp();
 
         // 1. Buffer Setup Script (.ps1)
-        let bufPs = `# STEP 1: SAP Buffer Backup & Addition Script (PowerShell)\n# Built by Pankaj Kapote\n\n`;
+        let bufPs = `# STEP 1: SAP Buffer Setup Script (PowerShell)\n# Built by Pankaj Kapote\n\n`;
         bufPs += `$TargetSID = "${sid}"\n$TargetClient = "${client}"\n$Profile = "${profile}"\n$BufferPath = "${bufferPath}"\n$LogFile = "sap_buffer_add_log_${ts}.log"\n\n`;
+        
         bufPs += `"1. Backing up buffer file..." | Out-File $LogFile -Append\n`;
         bufPs += `if (Test-Path $BufferPath) {\n`;
         bufPs += `  Copy-Item $BufferPath "${bufferPath}_backup_${ts}"\n`;
         bufPs += `  if (-not $?) { Write-Host "Error backing up buffer file! Aborting." -ForegroundColor Red; exit }\n`;
         bufPs += `}\n\n`;
-        bufPs += `"2. Clearing existing buffer entries..." | Out-File $LogFile -Append\n`;
-        bufPs += `& tp delfrombuffer ALL $TargetSID "pf=$Profile" *>$null\n`;
-        bufPs += `Clear-Content $BufferPath -ErrorAction SilentlyContinue\n\n`;
-        bufPs += `"3. Adding selected transports into buffer..." | Out-File $LogFile -Append\n`;
+
+        if (shouldCleanBuffer) {
+            bufPs += `"2. Clearing existing buffer entries..." | Out-File $LogFile -Append\n`;
+            bufPs += `& tp delfrombuffer ALL $TargetSID "pf=$Profile" *>$null\n`;
+            bufPs += `Clear-Content $BufferPath -ErrorAction SilentlyContinue\n\n`;
+        } else {
+            bufPs += `"2. Retaining existing buffer entries..." | Out-File $LogFile -Append\n\n`;
+        }
+
+        bufPs += `"3. Adding selected transports into buffer (u0)..." | Out-File $LogFile -Append\n`;
         bufPs += `$AddedCount = 0\n$FailedTRs = @()\n\n`;
 
         transportQueue.forEach(item => {
             bufPs += `Write-Host "Adding ${item.tr} (Client: $TargetClient) to buffer..."\n`;
-            bufPs += `& tp addtobuffer ${item.tr} $TargetSID "client=$TargetClient" "pf=$Profile" *>$null\n`;
+            bufPs += `& tp addtobuffer ${item.tr} $TargetSID "client=$TargetClient" u0 "pf=$Profile" *>$null\n`;
             bufPs += `if ($LASTEXITCODE -eq 0) { $AddedCount++ } else { $FailedTRs += "${item.tr}" }\n`;
         });
 
         bufPs += `\n"" | Out-File $LogFile -Append\n`;
         bufPs += `"=== BUFFER SETUP SUMMARY ===" | Out-File $LogFile -Append\n`;
         bufPs += `"Successfully added transports: $AddedCount" | Out-File $LogFile -Append\n`;
-        bufPs += `if ($FailedTRs.Count -gt 0) { "Failed transports: $($FailedTRs -join ', ')" | Out-File $LogFile -Append } else { "All transports added to buffer successfully." | Out-File $LogFile -Append }\n`;
+        bufPs += `if ($FailedTRs.Count -gt 0) { "Failed transports: $($FailedTRs -join ', ')" | Out-File $LogFile -Append } else { "All transports successfully queued in buffer." | Out-File $LogFile -Append }\n`;
         downloadFile(bufPs, `${sid}_1_buffer_setup_${ts}.ps1`, 'text/plain');
 
         // 2. Import Execution Script (.ps1)
@@ -715,33 +744,41 @@
         downloadFile(impPs, `${sid}_2_import_transports_${ts}.ps1`, 'text/plain');
     });
 
-    // GENERATE SEPARATE WINDOWS BATCH SCRIPTS (.bat)
+    // GENERATE WINDOWS BATCH SCRIPTS (.bat)
     document.getElementById('genBatBtn').addEventListener('click', () => {
         const sid = document.getElementById('targetSid').value;
         const transDir = document.getElementById('transDir').value;
         const client = document.getElementById('targetClient').value;
         const profile = `${transDir}\\bin\\TP_DOMAIN_${sid}.PFL`;
         const bufferPath = `${transDir}\\buffer\\${sid}`;
+        const shouldCleanBuffer = document.querySelector('input[name="bufferCleanStrategy"]:checked').value === 'clean';
         const stopOnError = document.querySelector('input[name="errorHandling"]:checked').value === 'prompt';
         const ts = getFormattedTimestamp();
 
         // 1. Buffer Setup Script (.bat)
-        let bufBat = `@echo off\nREM STEP 1: SAP Buffer Backup & Addition Script (Windows Batch)\nREM Built by Pankaj Kapote\n\n`;
+        let bufBat = `@echo off\nREM STEP 1: SAP Buffer Setup Script (Windows Batch)\nREM Built by Pankaj Kapote\n\n`;
         bufBat += `set TARGET_SID=${sid}\nset TARGET_CLIENT=${client}\nset PROFILE=${profile}\nset BUFFER_PATH=${bufferPath}\n\n`;
+        
         bufBat += `echo 1. Backing up existing buffer file...\n`;
         bufBat += `if exist "%BUFFER_PATH%" (\n`;
         bufBat += `    copy "%BUFFER_PATH%" "%BUFFER_PATH%_backup_${ts}.bak" >nul\n`;
         bufBat += `    if %ERRORLEVEL% NEQ 0 ( echo Error backing up buffer file! & goto :ABORT )\n`;
         bufBat += `)\n\n`;
-        bufBat += `echo 2. Clearing existing buffer entries...\n`;
-        bufBat += `tp delfrombuffer ALL %TARGET_SID% pf=%PROFILE% >nul 2>&1\n`;
-        bufBat += `type nul > "%BUFFER_PATH%"\n\n`;
-        bufBat += `echo 3. Adding selected transports into buffer...\n`;
+
+        if (shouldCleanBuffer) {
+            bufBat += `echo 2. Clearing existing buffer entries...\n`;
+            bufBat += `tp delfrombuffer ALL %TARGET_SID% pf=%PROFILE% >nul 2>&1\n`;
+            bufBat += `type nul > "%BUFFER_PATH%"\n\n`;
+        } else {
+            bufBat += `echo 2. Retaining existing buffer entries...\n\n`;
+        }
+
+        bufBat += `echo 3. Adding selected transports into buffer (u0)...\n`;
         bufBat += `set ADDED_COUNT=0\nset FAILED_LIST=\n\n`;
 
         transportQueue.forEach(item => {
             bufBat += `echo Adding ${item.tr} to buffer...\n`;
-            bufBat += `tp addtobuffer ${item.tr} %TARGET_SID% client=%TARGET_CLIENT% pf=%PROFILE% >nul 2>&1\n`;
+            bufBat += `tp addtobuffer ${item.tr} %TARGET_SID% client=%TARGET_CLIENT% u0 pf=%PROFILE% >nul 2>&1\n`;
             bufBat += `if %ERRORLEVEL% EQU 0 (\n`;
             bufBat += `    set /a ADDED_COUNT+=1\n`;
             bufBat += `) else (\n`;
