@@ -250,6 +250,7 @@
     <div class="tool-info">
         <h4>Buffer & Import Automation Strategy</h4>
         <ul>
+            <li><strong>Decoupled Domain SID vs. Target SID:</strong> Specify the <strong>Transport Domain SID</strong> independently from the <strong>Target System SID</strong> so the correct profile path (`TP_DOMAIN_<DOM_SID>.PFL`) is used when target systems are in a centralized domain (e.g. importing into `PRD` under domain `DEV`).</li>
             <li><strong>Preserved Input Sequence & Multiple Additions:</strong> Transports are queued in exact input sequence. Repetitions are tagged (`x1`, `x2`...). `tp addtobuffer` runs with unconditional flags (`u0`) so repeat transports and existing buffer items are marked for re-import without error.</li>
             <li><strong>Configurable Buffer Cleanup:</strong> Choose whether to clean the target buffer before adding or simply append transports to the existing system buffer.</li>
             <li><strong>Concise Import Error Summaries:</strong> Execution summary logs record RC counts and list <strong>only RC 8 and RC 12 requests</strong>.</li>
@@ -268,7 +269,7 @@
             </div>
             <div class="form-group">
                 <label>Or Paste Transports (One per line)</label>
-                <textarea id="pasteInput" rows="5" placeholder="DEVK900001&#10;DEVK900002, u128"></textarea>
+                <textarea id="pasteInput" rows="7" placeholder="DEVK900001&#10;DEVK900002, u128"></textarea>
             </div>
         </div>
 
@@ -276,8 +277,12 @@
         <div class="card">
             <h3>2. System Configuration</h3>
             <div class="form-group">
-                <label>Target System SID</label>
+                <label>Target System SID (System being imported into)</label>
                 <input type="text" id="targetSid" value="PRD">
+            </div>
+            <div class="form-group">
+                <label>Transport Domain SID (Domain Controller SID)</label>
+                <input type="text" id="domainSid" value="DEV">
             </div>
             <div class="form-group">
                 <label>Target Client</label>
@@ -526,6 +531,7 @@
             document.getElementById('fileInput').value = '';
             document.getElementById('pasteInput').value = '';
             document.getElementById('targetSid').value = 'PRD';
+            document.getElementById('domainSid').value = 'DEV';
             document.getElementById('targetClient').value = '100';
             document.getElementById('transDir').value = '/usr/sap/trans';
             document.getElementById('defaultUFlag').value = 'u12';
@@ -547,10 +553,11 @@
 
     // GENERATE LINUX/UNIX BASH SCRIPTS
     document.getElementById('genBashBtn').addEventListener('click', () => {
-        const sid = document.getElementById('targetSid').value;
-        const transDir = document.getElementById('transDir').value;
-        const client = document.getElementById('targetClient').value;
-        const profile = `${transDir}/bin/TP_DOMAIN_${sid}.PFL`;
+        const sid = document.getElementById('targetSid').value.trim().toUpperCase();
+        const domSid = document.getElementById('domainSid').value.trim().toUpperCase() || sid;
+        const transDir = document.getElementById('transDir').value.trim();
+        const client = document.getElementById('targetClient').value.trim();
+        const profile = `${transDir}/bin/TP_DOMAIN_${domSid}.PFL`;
         const bufferPath = `${transDir}/buffer/${sid}`;
         const shouldCleanBuffer = document.querySelector('input[name="bufferCleanStrategy"]:checked').value === 'clean';
         const stopOnError = document.querySelector('input[name="errorHandling"]:checked').value === 'prompt';
@@ -558,7 +565,7 @@
 
         // 1. Buffer Setup Script (.sh)
         let bufSh = `#!/usr/bin/env bash\n# STEP 1: SAP Buffer Setup Script\n# Built by Pankaj Kapote\n\n`;
-        bufSh += `TARGET_SID="${sid}"\nTARGET_CLIENT="${client}"\nPROFILE="${profile}"\nBUFFER_PATH="${bufferPath}"\nLOG_FILE="sap_buffer_add_log_${ts}.log"\n\n`;
+        bufSh += `TARGET_SID="${sid}"\nDOMAIN_SID="${domSid}"\nTARGET_CLIENT="${client}"\nPROFILE="${profile}"\nBUFFER_PATH="${bufferPath}"\nLOG_FILE="sap_buffer_add_log_${ts}.log"\n\n`;
         
         bufSh += `echo "1. Backing up existing buffer file..." | tee -a $LOG_FILE\n`;
         bufSh += `if [ -f "$BUFFER_PATH" ]; then\n`;
@@ -593,16 +600,24 @@
         bufSh += `\necho "" | tee -a $LOG_FILE\n`;
         bufSh += `echo "=== BUFFER SETUP SUMMARY ===" | tee -a $LOG_FILE\n`;
         bufSh += `echo "Successfully added transports: $ADDED_COUNT" | tee -a $LOG_FILE\n`;
-        bufSh += `if [ -n "$FAILED_TRS" ]; then\n`;
-        bufSh += `  echo "Failed to add the following transport(s): $FAILED_TRS" | tee -a $LOG_FILE\n`;
-        bufSh += `else\n`;
-        bufSh += `  echo "All transports successfully queued in buffer." | tee -a $LOG_FILE\n`;
-        bufSh += `fi\n`;
+        if (shouldCleanBuffer) {
+            bufSh += `if [ -n "$FAILED_TRS" ]; then\n`;
+            bufSh += `  echo "Failed to add the following transport(s): $FAILED_TRS" | tee -a $LOG_FILE\n`;
+            bufSh += `else\n`;
+            bufSh += `  echo "All transports successfully queued in buffer." | tee -a $LOG_FILE\n`;
+            bufSh += `fi\n`;
+        } else {
+            bufSh += `if [ -n "$FAILED_TRS" ]; then\n`;
+            bufSh += `  echo "Failed to add the following transport(s): $FAILED_TRS" | tee -a $LOG_FILE\n`;
+            bufSh += `else\n`;
+            bufSh += `  echo "All transports successfully appended to buffer." | tee -a $LOG_FILE\n`;
+            bufSh += `fi\n`;
+        }
         downloadFile(bufSh, `${sid}_1_buffer_setup_${ts}.sh`, 'text/x-sh');
 
         // 2. Import Execution Script (.sh)
         let impSh = `#!/usr/bin/env bash\n# STEP 2: SAP Transport Import Script\n# Built by Pankaj Kapote\n\n`;
-        impSh += `TARGET_SID="${sid}"\nTARGET_CLIENT="${client}"\nPROFILE="${profile}"\nLOG_FILE="sap_import_log_${ts}.csv"\n\n`;
+        impSh += `TARGET_SID="${sid}"\nDOMAIN_SID="${domSid}"\nTARGET_CLIENT="${client}"\nPROFILE="${profile}"\nLOG_FILE="sap_import_log_${ts}.csv"\n\n`;
         impSh += `START_TIME=$(date +%s)\n`;
         impSh += `CNT_TOTAL=0; CNT_RC0=0; CNT_RC4=0; CNT_RC8=0; CNT_RC12=0; CNT_OTHER=0\n`;
         impSh += `FAILED_RC8_LIST=""\nFAILED_RC12_LIST=""\n\n`;
@@ -652,10 +667,11 @@
 
     // GENERATE POWERSHELL SCRIPTS (.ps1)
     document.getElementById('genPsBtn').addEventListener('click', () => {
-        const sid = document.getElementById('targetSid').value;
-        const transDir = document.getElementById('transDir').value;
-        const client = document.getElementById('targetClient').value;
-        const profile = `${transDir}\\bin\\TP_DOMAIN_${sid}.PFL`;
+        const sid = document.getElementById('targetSid').value.trim().toUpperCase();
+        const domSid = document.getElementById('domainSid').value.trim().toUpperCase() || sid;
+        const transDir = document.getElementById('transDir').value.trim();
+        const client = document.getElementById('targetClient').value.trim();
+        const profile = `${transDir}\\bin\\TP_DOMAIN_${domSid}.PFL`;
         const bufferPath = `${transDir}\\buffer\\${sid}`;
         const shouldCleanBuffer = document.querySelector('input[name="bufferCleanStrategy"]:checked').value === 'clean';
         const stopOnError = document.querySelector('input[name="errorHandling"]:checked').value === 'prompt';
@@ -663,7 +679,7 @@
 
         // 1. Buffer Setup Script (.ps1)
         let bufPs = `# STEP 1: SAP Buffer Setup Script (PowerShell)\n# Built by Pankaj Kapote\n\n`;
-        bufPs += `$TargetSID = "${sid}"\n$TargetClient = "${client}"\n$Profile = "${profile}"\n$BufferPath = "${bufferPath}"\n$LogFile = "sap_buffer_add_log_${ts}.log"\n\n`;
+        bufPs += `$TargetSID = "${sid}"\n$DomainSID = "${domSid}"\n$TargetClient = "${client}"\n$Profile = "${profile}"\n$BufferPath = "${bufferPath}"\n$LogFile = "sap_buffer_add_log_${ts}.log"\n\n`;
         
         bufPs += `"1. Backing up buffer file..." | Out-File $LogFile -Append\n`;
         bufPs += `if (Test-Path $BufferPath) {\n`;
@@ -696,7 +712,7 @@
 
         // 2. Import Execution Script (.ps1)
         let impPs = `# STEP 2: SAP Transport Import Script (PowerShell)\n# Built by Pankaj Kapote\n\n`;
-        impPs += `$TargetSID = "${sid}"\n$TargetClient = "${client}"\n$Profile = "${profile}"\n$LogFile = "sap_import_log_${ts}.csv"\n`;
+        impPs += `$TargetSID = "${sid}"\n$DomainSID = "${domSid}"\n$TargetClient = "${client}"\n$Profile = "${profile}"\n$LogFile = "sap_import_log_${ts}.csv"\n`;
         impPs += `$StartTime = Get-Date\n`;
         impPs += `$CntTotal=0; $CntRC0=0; $CntRC4=0; $CntRC8=0; $CntRC12=0; $CntOther=0\n`;
         impPs += `$FailedRC8 = @()\n$FailedRC12 = @()\n\n`;
@@ -746,10 +762,11 @@
 
     // GENERATE WINDOWS BATCH SCRIPTS (.bat)
     document.getElementById('genBatBtn').addEventListener('click', () => {
-        const sid = document.getElementById('targetSid').value;
-        const transDir = document.getElementById('transDir').value;
-        const client = document.getElementById('targetClient').value;
-        const profile = `${transDir}\\bin\\TP_DOMAIN_${sid}.PFL`;
+        const sid = document.getElementById('targetSid').value.trim().toUpperCase();
+        const domSid = document.getElementById('domainSid').value.trim().toUpperCase() || sid;
+        const transDir = document.getElementById('transDir').value.trim();
+        const client = document.getElementById('targetClient').value.trim();
+        const profile = `${transDir}\\bin\\TP_DOMAIN_${domSid}.PFL`;
         const bufferPath = `${transDir}\\buffer\\${sid}`;
         const shouldCleanBuffer = document.querySelector('input[name="bufferCleanStrategy"]:checked').value === 'clean';
         const stopOnError = document.querySelector('input[name="errorHandling"]:checked').value === 'prompt';
@@ -757,7 +774,7 @@
 
         // 1. Buffer Setup Script (.bat)
         let bufBat = `@echo off\nREM STEP 1: SAP Buffer Setup Script (Windows Batch)\nREM Built by Pankaj Kapote\n\n`;
-        bufBat += `set TARGET_SID=${sid}\nset TARGET_CLIENT=${client}\nset PROFILE=${profile}\nset BUFFER_PATH=${bufferPath}\n\n`;
+        bufBat += `set TARGET_SID=${sid}\nset DOMAIN_SID=${domSid}\nset TARGET_CLIENT=${client}\nset PROFILE=${profile}\nset BUFFER_PATH=${bufferPath}\n\n`;
         
         bufBat += `echo 1. Backing up existing buffer file...\n`;
         bufBat += `if exist "%BUFFER_PATH%" (\n`;
@@ -792,7 +809,7 @@
 
         // 2. Import Execution Script (.bat)
         let impBat = `@echo off\nREM STEP 2: SAP Transport Import Script (Windows Batch)\nREM Built by Pankaj Kapote\n\n`;
-        impBat += `set TARGET_SID=${sid}\nset TARGET_CLIENT=${client}\nset PROFILE=${profile}\nset LOG_FILE=sap_import_log_${ts}.csv\n\n`;
+        impBat += `set TARGET_SID=${sid}\nset DOMAIN_SID=${domSid}\nset TARGET_CLIENT=${client}\nset PROFILE=${profile}\nset LOG_FILE=sap_import_log_${ts}.csv\n\n`;
         impBat += `set CNT_RC8=0\nset CNT_RC12=0\nset RC8_LIST=\nset RC12_LIST=\n\n`;
         impBat += `echo Date,Time,Transport_Number,Target_SID,Target_Client,U_Flag,Return_Code > %LOG_FILE%\n\n`;
         
@@ -801,8 +818,8 @@
             impBat += `tp import ${item.tr} %TARGET_SID% client=%TARGET_CLIENT% ${item.uflag} pf=%PROFILE% >nul 2>&1\n`;
             impBat += `set RC=%ERRORLEVEL%\n`;
             impBat += `echo %DATE%,%TIME%,${item.tr},%TARGET_SID%,%TARGET_CLIENT%,${item.uflag},%RC% >> %LOG_FILE%\n`;
-            impBat += `if %RC% EQU 8 ( set /a CNT_RC8+=1 & set RC8_LIST=%RC8_LIST% ${item.tr} )\n`;
-            impBat += `if %RC% EQU 12 ( set /a CNT_RC12+=1 & set RC12_LIST=%RC12_LIST% ${item.tr} )\n`;
+            if %RC% EQU 8 ( set /a CNT_RC8+=1 & set RC8_LIST=%RC8_LIST% ${item.tr} )\n`;
+            if %RC% EQU 12 ( set /a CNT_RC12+=1 & set RC12_LIST=%RC12_LIST% ${item.tr} )\n`;
             
             if (stopOnError) {
                 impBat += `if %RC% GEQ 8 (\n`;
