@@ -246,15 +246,14 @@
         </div>
     </header>
 
-    <!-- Tool Info -->
     <div class="tool-info">
         <h4>Buffer & Import Automation Strategy</h4>
         <ul>
             <li><strong>Timestamped Execution Logs & Backups:</strong> Every buffer backup file, buffer addition log, and import CSV report is tagged dynamically at runtime with <code>YYYYMMDD_HHMMSS</code> timestamps to prevent file overwrites.</li>
-            <li><strong>Decoupled Domain SID vs. Target SID:</strong> Specify the <strong>Transport Domain SID</strong> independently from the <strong>Target System SID</strong> so the correct profile path (`TP_DOMAIN_<DOM_SID>.PFL`) is used when target systems are in a centralized domain (e.g. importing into `PRD` under domain `DEV`).</li>
-            <li><strong>Preserved Sequence & Re-import Flag:</strong> Transports are queued in exact input sequence. Repetitions are tagged (`x1`, `x2`...). `tp addtobuffer` runs with unconditional flags (`u0`) so repeat transports and existing buffer items are marked for re-import without error.</li>
-            <li><strong>Configurable Buffer Cleanup:</strong> Choose whether to clean the target buffer before adding or simply append transports to the existing system buffer.</li>
-            <li><strong>Concise Import Error Summaries:</strong> Execution summary logs record RC counts and list <strong>only RC 8 and RC 12 requests</strong>.</li>
+            <li><strong>Decoupled Domain SID vs. Target SID:</strong> Specify the <strong>Transport Domain SID</strong> independently from the <strong>Target System SID</strong> so the correct profile path (<code>TP_DOMAIN_&lt;DOM_SID&gt;.PFL</code>) is resolved when importing systems in a centralized domain[cite: 5].</li>
+            <li><strong>Preserved Sequence & Re-import Flag:</strong> Transports are queued in exact input sequence. Repetitions are tagged (<code>x1</code>, <code>x2</code>...). <code>tp addtobuffer</code> runs with unconditional flags (<code>u0</code>) so repeat transports and existing buffer items are marked for re-import without error[cite: 5].</li>
+            <li><strong>Configurable Buffer Cleanup:</strong> Choose whether to clean the target buffer before adding or simply append transports to the existing system buffer[cite: 5].</li>
+            <li><strong>Concise Import Error Summaries:</strong> Execution summary logs record RC counts and list <strong>only RC 8 and RC 12 requests</strong>[cite: 5].</li>
         </ul>
     </div>
 
@@ -370,33 +369,54 @@
     let rawTransports = [];
     let transportQueue = [];
 
-    document.getElementById('parseBtn').addEventListener('click', () => {
-        const fileInput = document.getElementById('fileInput').files[0];
-        const pasteInput = document.getElementById('pasteInput').value.trim();
+    // Robust trigger for "Process & Flag Transports"
+    document.getElementById('parseBtn').addEventListener('click', function() {
+        const fileInput = document.getElementById('fileInput');
+        const file = fileInput.files && fileInput.files.length > 0 ? fileInput.files[0] : null;
+        const pasteText = document.getElementById('pasteInput').value.trim();
 
-        if (fileInput) {
-            const reader = new FileReader();
-            const ext = fileInput.name.split('.').pop().toLowerCase();
+        if (file) {
+            const fileName = file.name.toLowerCase();
+            const isExcel = fileName.endsWith('.xlsx') || fileName.endsWith('.xls');
 
-            if (ext === 'xlsx' || ext === 'xls') {
-                reader.onload = (e) => {
-                    const data = new Uint8Array(e.target.result);
-                    const workbook = XLSX.read(data, { type: 'array' });
-                    const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-                    const json = XLSX.utils.sheet_to_json(firstSheet, { header: 1 });
-                    parseAndFlagTransports(json.map(row => row.join(',')));
+            if (isExcel) {
+                if (typeof XLSX === 'undefined') {
+                    alert('SheetJS Excel library could not be loaded (offline mode).\nPlease save your Excel file as CSV or TXT, or paste the transport list into the textarea.');
+                    return;
+                }
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    try {
+                        const data = new Uint8Array(e.target.result);
+                        const workbook = XLSX.read(data, { type: 'array' });
+                        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+                        const json = XLSX.utils.sheet_to_json(firstSheet, { header: 1 });
+                        const lines = [];
+                        json.forEach(row => {
+                            if (row && row.length > 0) {
+                                lines.push(row.join(','));
+                            }
+                        });
+                        parseAndFlagTransports(lines);
+                    } catch (err) {
+                        alert('Error reading Excel file: ' + err.message);
+                    }
                 };
-                reader.readAsArrayBuffer(fileInput);
+                reader.readAsArrayBuffer(file);
             } else {
-                reader.onload = (e) => {
-                    parseAndFlagTransports(e.target.result.split('\n'));
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const text = e.target.result || '';
+                    const lines = text.split(/\r?\n/);
+                    parseAndFlagTransports(lines);
                 };
-                reader.readAsText(fileInput);
+                reader.readAsText(file);
             }
-        } else if (pasteInput) {
-            parseAndFlagTransports(pasteInput.split('\n'));
+        } else if (pasteText.length > 0) {
+            const lines = pasteText.split(/\r?\n/);
+            parseAndFlagTransports(lines);
         } else {
-            alert('Please select a file or paste transport IDs.');
+            alert('Please select a file or paste transport IDs into the textarea first.');
         }
     });
 
@@ -407,12 +427,20 @@
         lines.forEach(line => {
             const clean = line.trim();
             if (clean && !clean.toLowerCase().startsWith('header') && !clean.toLowerCase().startsWith('transport')) {
-                const parts = clean.split(/[,;]/);
-                const tr = parts[0].trim();
+                // Split on comma, semicolon, or tabs
+                const parts = clean.split(/[\t,;]/);
+                const tr = parts[0].trim().toUpperCase();
                 const uflag = parts.length > 1 && parts[1].trim() ? parts[1].trim() : defaultUFlag;
-                if (tr) rawTransports.push({ tr, uflag });
+                if (tr) {
+                    rawTransports.push({ tr: tr, uflag: uflag });
+                }
             }
         });
+
+        if (rawTransports.length === 0) {
+            alert('No valid transport requests found. Ensure lines contain transport IDs (e.g., DEVK900001).');
+            return;
+        }
 
         transportQueue = rawTransports.map(item => ({ tr: item.tr, uflag: item.uflag }));
         recalculateDuplicatesAndRender();
@@ -437,7 +465,7 @@
         const dupCount = Object.values(totalCounts).filter(c => c > 1).length;
         if (dupCount > 0) {
             alertBox.style.display = 'block';
-            alertBox.innerHTML = `<strong>Notice:</strong> Found duplicate transport entries in the list. Repetitions are explicitly flagged below (e.g., x1, x2). You can add or remove any entry manually.`;
+            alertBox.innerHTML = '<strong>Notice:</strong> Found duplicate transport entries in the list. Repetitions are explicitly flagged below (e.g., x1, x2). You can add or remove any entry manually.';
         } else {
             alertBox.style.display = 'none';
         }
@@ -447,8 +475,8 @@
 
     function renderTable() {
         const tbody = document.querySelector('#trTable tbody');
-        const sid = document.getElementById('targetSid').value;
-        const client = document.getElementById('targetClient').value;
+        const sid = document.getElementById('targetSid').value.trim().toUpperCase();
+        const client = document.getElementById('targetClient').value.trim();
         tbody.innerHTML = '';
 
         if (transportQueue.length === 0) {
@@ -463,21 +491,20 @@
                 tr.classList.add('tr-dup-row');
             }
 
-            const dupBadge = item.isDuplicate ? `<span class="dup-badge">x${item.occurrence}</span>` : '';
+            const dupBadge = item.isDuplicate ? ('<span class="dup-badge">x' + item.occurrence + '</span>') : '';
 
-            tr.innerHTML = `
-                <td>${index + 1}</td>
-                <td><strong>${item.tr}</strong>${dupBadge}</td>
-                <td>${sid}</td>
-                <td>${client}</td>
-                <td><input type="text" value="${item.uflag}" onchange="updateUFlag(${index}, this.value)" style="width:70px;"></td>
-                <td>
-                    <div class="btn-action-group">
-                        <button class="btn-add" onclick="addTransportAfter(${index})">➕ Add</button>
-                        <button class="btn-remove" onclick="removeTransport(${index})">✖ Remove</button>
-                    </div>
-                </td>
-            `;
+            tr.innerHTML = 
+                '<td>' + (index + 1) + '</td>' +
+                '<td><strong>' + item.tr + '</strong>' + dupBadge + '</td>' +
+                '<td>' + sid + '</td>' +
+                '<td>' + client + '</td>' +
+                '<td><input type="text" value="' + item.uflag + '" onchange="updateUFlag(' + index + ', this.value)" style="width:70px;"></td>' +
+                '<td>' +
+                    '<div class="btn-action-group">' +
+                        '<button class="btn-add" onclick="addTransportAfter(' + index + ')">➕ Add</button>' +
+                        '<button class="btn-remove" onclick="removeTransport(' + index + ')">✖ Remove</button>' +
+                    '</div>' +
+                '</td>';
             tbody.appendChild(tr);
         });
 
@@ -490,12 +517,12 @@
         const input = prompt("Enter new Transport Request ID (or TR_ID, U-FLAG e.g. DEVK900099, u128):");
         
         if (input) {
-            const parts = input.split(/[,;]/);
+            const parts = input.split(/[\t,;]/);
             const tr = parts[0].trim().toUpperCase();
             const uflag = parts.length > 1 && parts[1].trim() ? parts[1].trim() : defaultUFlag;
 
             if (tr) {
-                transportQueue.splice(index + 1, 0, { tr, uflag });
+                transportQueue.splice(index + 1, 0, { tr: tr, uflag: uflag });
                 recalculateDuplicatesAndRender();
             }
         }
@@ -524,10 +551,10 @@
         const hh = String(now.getHours()).padStart(2, '0');
         const min = String(now.getMinutes()).padStart(2, '0');
         const ss = String(now.getSeconds()).padStart(2, '0');
-        return `${yyyy}${mm}${dd}_${hh}${min}${ss}`;
+        return yyyy + mm + dd + '_' + hh + min + ss;
     }
 
-    document.getElementById('resetAllBtn').addEventListener('click', () => {
+    document.getElementById('resetAllBtn').addEventListener('click', function() {
         if (confirm("Are you sure you want to reset everything and start over?")) {
             document.getElementById('fileInput').value = '';
             document.getElementById('pasteInput').value = '';
@@ -553,308 +580,307 @@
     }
 
     // GENERATE LINUX/UNIX BASH SCRIPTS
-    document.getElementById('genBashBtn').addEventListener('click', () => {
+    document.getElementById('genBashBtn').addEventListener('click', function() {
         const sid = document.getElementById('targetSid').value.trim().toUpperCase();
         const domSid = document.getElementById('domainSid').value.trim().toUpperCase() || sid;
         const transDir = document.getElementById('transDir').value.trim();
         const client = document.getElementById('targetClient').value.trim();
-        const profile = `${transDir}/bin/TP_DOMAIN_${domSid}.PFL`;
-        const bufferPath = `${transDir}/buffer/${sid}`;
+        const profile = transDir + '/bin/TP_DOMAIN_' + domSid + '.PFL';
+        const bufferPath = transDir + '/buffer/' + sid;
         const shouldCleanBuffer = document.querySelector('input[name="bufferCleanStrategy"]:checked').value === 'clean';
         const stopOnError = document.querySelector('input[name="errorHandling"]:checked').value === 'prompt';
         const ts = getFormattedTimestamp();
 
         // 1. Buffer Setup Script (.sh)
-        let bufSh = `#!/usr/bin/env bash\n# STEP 1: SAP Buffer Setup Script\n# Built by Pankaj Kapote\n\n`;
-        bufSh += `TARGET_SID="${sid}"\nDOMAIN_SID="${domSid}"\nTARGET_CLIENT="${client}"\nPROFILE="${profile}"\nBUFFER_PATH="${bufferPath}"\n`;
-        bufSh += `RUN_TS=$(date +%Y%m%d_%H%M%S)\nLOG_FILE="sap_buffer_add_log_\${RUN_TS}.log"\n\n`;
+        let bufSh = '#!/usr/bin/env bash\n# STEP 1: SAP Buffer Setup Script\n# Built by Pankaj Kapote\n\n';
+        bufSh += 'TARGET_SID="' + sid + '"\nDOMAIN_SID="' + domSid + '"\nTARGET_CLIENT="' + client + '"\nPROFILE="' + profile + '"\nBUFFER_PATH="' + bufferPath + '"\n';
+        bufSh += 'RUN_TS=$(date +%Y%m%d_%H%M%S)\nLOG_FILE="sap_buffer_add_log_${RUN_TS}.log"\n\n';
         
-        bufSh += `echo "1. Backing up existing buffer file..." | tee -a "$LOG_FILE"\n`;
-        bufSh += `if [ -f "$BUFFER_PATH" ]; then\n`;
-        bufSh += `  cp "$BUFFER_PATH" "\${BUFFER_PATH}_backup_\${RUN_TS}"\n`;
-        bufSh += `  if [ $? -ne 0 ]; then echo "Error backing up buffer file! Aborting." | tee -a "$LOG_FILE"; exit 1; fi\n`;
-        bufSh += `  echo "Backup successfully created: \${BUFFER_PATH}_backup_\${RUN_TS}" | tee -a "$LOG_FILE"\n`;
-        bufSh += `fi\n\n`;
+        bufSh += 'echo "1. Backing up existing buffer file..." | tee -a "$LOG_FILE"\n';
+        bufSh += 'if [ -f "$BUFFER_PATH" ]; then\n';
+        bufSh += '  cp "$BUFFER_PATH" "${BUFFER_PATH}_backup_${RUN_TS}"\n';
+        bufSh += '  if [ $? -ne 0 ]; then echo "Error backing up buffer file! Aborting." | tee -a "$LOG_FILE"; exit 1; fi\n';
+        bufSh += '  echo "Backup successfully created: ${BUFFER_PATH}_backup_${RUN_TS}" | tee -a "$LOG_FILE"\n';
+        bufSh += 'fi\n\n';
 
         if (shouldCleanBuffer) {
-            bufSh += `echo "2. Clearing existing buffer entries..." | tee -a "$LOG_FILE"\n`;
-            bufSh += `tp delfrombuffer ALL $TARGET_SID pf=$PROFILE > /dev/null 2>&1\n`;
-            bufSh += `> "$BUFFER_PATH"\n`;
-            bufSh += `echo "Buffer cleared." | tee -a "$LOG_FILE"\n\n`;
+            bufSh += 'echo "2. Clearing existing buffer entries..." | tee -a "$LOG_FILE"\n';
+            bufSh += 'tp delfrombuffer ALL $TARGET_SID pf=$PROFILE > /dev/null 2>&1\n';
+            bufSh += '> "$BUFFER_PATH"\n';
+            bufSh += 'echo "Buffer cleared." | tee -a "$LOG_FILE"\n\n';
         } else {
-            bufSh += `echo "2. Retaining existing buffer entries (No cleanbuffer requested)..." | tee -a "$LOG_FILE"\n\n`;
+            bufSh += 'echo "2. Retaining existing buffer entries (No cleanbuffer requested)..." | tee -a "$LOG_FILE"\n\n';
         }
 
-        bufSh += `echo "3. Adding selected transports into buffer (with re-import flag u0)..." | tee -a "$LOG_FILE"\n`;
-        bufSh += `ADDED_COUNT=0\nFAILED_TRS=""\n\n`;
+        bufSh += 'echo "3. Adding selected transports into buffer (with re-import flag u0)..." | tee -a "$LOG_FILE"\n';
+        bufSh += 'ADDED_COUNT=0\nFAILED_TRS=""\n\n';
 
         transportQueue.forEach(item => {
-            bufSh += `echo "Adding ${item.tr} (Client: $TARGET_CLIENT) to buffer..." | tee -a "$LOG_FILE"\n`;
-            bufSh += `tp addtobuffer ${item.tr} $TARGET_SID client=$TARGET_CLIENT u0 pf=$PROFILE > /dev/null 2>&1\n`;
-            bufSh += `if [ $? -eq 0 ]; then\n`;
-            bufSh += `  ((ADDED_COUNT++))\n`;
-            bufSh += `else\n`;
-            bufSh += `  echo "ERROR: Failed to add ${item.tr} to buffer!" | tee -a "$LOG_FILE"\n`;
-            bufSh += `  FAILED_TRS="$FAILED_TRS ${item.tr}"\n`;
-            bufSh += `fi\n`;
+            bufSh += 'echo "Adding ' + item.tr + ' (Client: $TARGET_CLIENT) to buffer..." | tee -a "$LOG_FILE"\n';
+            bufSh += 'tp addtobuffer ' + item.tr + ' $TARGET_SID client=$TARGET_CLIENT u0 pf=$PROFILE > /dev/null 2>&1\n';
+            bufSh += 'if [ $? -eq 0 ]; then\n';
+            bufSh += '  ((ADDED_COUNT++))\n';
+            bufSh += 'else\n';
+            bufSh += '  echo "ERROR: Failed to add ' + item.tr + ' to buffer!" | tee -a "$LOG_FILE"\n';
+            bufSh += '  FAILED_TRS="$FAILED_TRS ' + item.tr + '"\n';
+            bufSh += 'fi\n';
         });
 
-        bufSh += `\necho "" | tee -a "$LOG_FILE"\n`;
-        bufSh += `echo "=== BUFFER SETUP SUMMARY ===" | tee -a "$LOG_FILE"\n`;
-        bufSh += `echo "Successfully added transports: $ADDED_COUNT" | tee -a "$LOG_FILE"\n`;
+        bufSh += '\necho "" | tee -a "$LOG_FILE"\n';
+        bufSh += 'echo "=== BUFFER SETUP SUMMARY ===" | tee -a "$LOG_FILE"\n';
+        bufSh += 'echo "Successfully added transports: $ADDED_COUNT" | tee -a "$LOG_FILE"\n';
         if (shouldCleanBuffer) {
-            bufSh += `if [ -n "$FAILED_TRS" ]; then\n`;
-            bufSh += `  echo "Failed to add the following transport(s): $FAILED_TRS" | tee -a "$LOG_FILE"\n`;
-            bufSh += `else\n`;
-            bufSh += `  echo "All transports successfully queued in buffer." | tee -a "$LOG_FILE"\n`;
-            bufSh += `fi\n`;
+            bufSh += 'if [ -n "$FAILED_TRS" ]; then\n';
+            bufSh += '  echo "Failed to add the following transport(s): $FAILED_TRS" | tee -a "$LOG_FILE"\n';
+            bufSh += 'else\n';
+            bufSh += '  echo "All transports successfully queued in buffer." | tee -a "$LOG_FILE"\n';
+            bufSh += 'fi\n';
         } else {
-            bufSh += `if [ -n "$FAILED_TRS" ]; then\n`;
-            bufSh += `  echo "Failed to add the following transport(s): $FAILED_TRS" | tee -a "$LOG_FILE"\n`;
-            bufSh += `else\n`;
-            bufSh += `  echo "All transports successfully appended to buffer." | tee -a "$LOG_FILE"\n`;
-            bufSh += `fi\n`;
+            bufSh += 'if [ -n "$FAILED_TRS" ]; then\n';
+            bufSh += '  echo "Failed to add the following transport(s): $FAILED_TRS" | tee -a "$LOG_FILE"\n';
+            bufSh += 'else\n';
+            bufSh += '  echo "All transports successfully appended to buffer." | tee -a "$LOG_FILE"\n';
+            bufSh += 'fi\n';
         }
-        bufSh += `echo "Log recorded to: $LOG_FILE"\n`;
-        downloadFile(bufSh, `${sid}_1_buffer_setup_${ts}.sh`, 'text/x-sh');
+        bufSh += 'echo "Log recorded to: $LOG_FILE"\n';
+        downloadFile(bufSh, sid + '_1_buffer_setup_' + ts + '.sh', 'text/x-sh');
 
         // 2. Import Execution Script (.sh)
-        let impSh = `#!/usr/bin/env bash\n# STEP 2: SAP Transport Import Script\n# Built by Pankaj Kapote\n\n`;
-        impSh += `TARGET_SID="${sid}"\nDOMAIN_SID="${domSid}"\nTARGET_CLIENT="${client}"\nPROFILE="${profile}"\n`;
-        impSh += `RUN_TS=$(date +%Y%m%d_%H%M%S)\nLOG_FILE="sap_import_log_\${RUN_TS}.csv"\n\n`;
-        impSh += `START_TIME=$(date +%s)\n`;
-        impSh += `CNT_TOTAL=0; CNT_RC0=0; CNT_RC4=0; CNT_RC8=0; CNT_RC12=0; CNT_OTHER=0\n`;
-        impSh += `FAILED_RC8_LIST=""\nFAILED_RC12_LIST=""\n\n`;
-        impSh += `echo "Date,Time,Transport_Number,Target_SID,Target_Client,U_Flag,Return_Code" > "$LOG_FILE"\n\n`;
+        let impSh = '#!/usr/bin/env bash\n# STEP 2: SAP Transport Import Script\n# Built by Pankaj Kapote\n\n';
+        impSh += 'TARGET_SID="' + sid + '"\nDOMAIN_SID="' + domSid + '"\nTARGET_CLIENT="' + client + '"\nPROFILE="' + profile + '"\n';
+        impSh += 'RUN_TS=$(date +%Y%m%d_%H%M%S)\nLOG_FILE="sap_import_log_${RUN_TS}.csv"\n\n';
+        impSh += 'START_TIME=$(date +%s)\n';
+        impSh += 'CNT_TOTAL=0; CNT_RC0=0; CNT_RC4=0; CNT_RC8=0; CNT_RC12=0; CNT_OTHER=0\n';
+        impSh += 'FAILED_RC8_LIST=""\nFAILED_RC12_LIST=""\n\n';
+        impSh += 'echo "Date,Time,Transport_Number,Target_SID,Target_Client,U_Flag,Return_Code" > "$LOG_FILE"\n\n';
         
         transportQueue.forEach(item => {
-            impSh += `echo "Importing ${item.tr}..."\n`;
-            impSh += `tp import ${item.tr} $TARGET_SID client=$TARGET_CLIENT ${item.uflag} pf=$PROFILE > /dev/null 2>&1\n`;
-            impSh += `RC=$?\n`;
-            impSh += `echo "$(date +%Y-%m-%d),$(date +%H:%M:%S),${item.tr},$TARGET_SID,$TARGET_CLIENT,${item.uflag},$RC" >> "$LOG_FILE"\n`;
-            impSh += `((CNT_TOTAL++))\n`;
-            impSh += `case $RC in\n`;
-            impSh += `  0) ((CNT_RC0++));;\n`;
-            impSh += `  4) ((CNT_RC4++));;\n`;
-            impSh += `  8) ((CNT_RC8++)); FAILED_RC8_LIST="$FAILED_RC8_LIST ${item.tr}";;\n`;
-            impSh += `  12) ((CNT_RC12++)); FAILED_RC12_LIST="$FAILED_RC12_LIST ${item.tr}";;\n`;
-            impSh += `  *) ((CNT_OTHER++));;\n`;
-            impSh += `esac\n`;
+            impSh += 'echo "Importing ' + item.tr + '..."\n';
+            impSh += 'tp import ' + item.tr + ' $TARGET_SID client=$TARGET_CLIENT ' + item.uflag + ' pf=$PROFILE > /dev/null 2>&1\n';
+            impSh += 'RC=$?\n';
+            impSh += 'echo "$(date +%Y-%m-%d),$(date +%H:%M:%S),' + item.tr + ',$TARGET_SID,$TARGET_CLIENT,' + item.uflag + ',$RC" >> "$LOG_FILE"\n';
+            impSh += '((CNT_TOTAL++))\n';
+            impSh += 'case $RC in\n';
+            impSh += '  0) ((CNT_RC0++));;\n';
+            impSh += '  4) ((CNT_RC4++));;\n';
+            impSh += '  8) ((CNT_RC8++)); FAILED_RC8_LIST="$FAILED_RC8_LIST ' + item.tr + '";;\n';
+            impSh += '  12) ((CNT_RC12++)); FAILED_RC12_LIST="$FAILED_RC12_LIST ' + item.tr + '";;\n';
+            impSh += '  *) ((CNT_OTHER++));;\n';
+            impSh += 'esac\n';
             
             if (stopOnError) {
-                impSh += `if [ $RC -eq 8 ] || [ $RC -eq 12 ]; then\n`;
-                impSh += `  read -p "Warning: RC $RC on ${item.tr}. Are you sure you want to continue? (Y/N): " CONF1\n`;
-                impSh += `  if [[ "$CONF1" =~ ^[Yy]$ ]]; then\n`;
-                impSh += `    read -p "DOUBLE CONFIRMATION: Type YES to continue importing: " CONF2\n`;
-                impSh += `    if [ "$CONF2" != "YES" ]; then exit 1; fi\n`;
-                impSh += `  else exit 1; fi\n`;
-                impSh += `fi\n`;
+                impSh += 'if [ $RC -eq 8 ] || [ $RC -eq 12 ]; then\n';
+                impSh += '  read -p "Warning: RC $RC on ' + item.tr + '. Are you sure you want to continue? (Y/N): " CONF1\n';
+                impSh += '  if [[ "$CONF1" =~ ^[Yy]$ ]]; then\n';
+                impSh += '    read -p "DOUBLE CONFIRMATION: Type YES to continue importing: " CONF2\n';
+                impSh += '    if [ "$CONF2" != "YES" ]; then exit 1; fi\n';
+                impSh += '  else exit 1; fi\n';
+                impSh += 'fi\n';
             }
-            impSh += `\n`;
+            impSh += '\n';
         });
 
-        impSh += `END_TIME=$(date +%s)\n`;
-        impSh += `ELAPSED_MIN=$(( (END_TIME - START_TIME) / 60 ))\n`;
-        impSh += `echo "" >> "$LOG_FILE"\n`;
-        impSh += `echo "=== SUMMARY BLOCK ===" >> "$LOG_FILE"\n`;
-        impSh += `echo "Total Processed,$CNT_TOTAL" >> "$LOG_FILE"\n`;
-        impSh += `echo "Elapsed Time (Minutes),$ELAPSED_MIN" >> "$LOG_FILE"\n`;
-        impSh += `echo "RC 0 Count,$CNT_RC0" >> "$LOG_FILE"\n`;
-        impSh += `echo "RC 4 Count,$CNT_RC4" >> "$LOG_FILE"\n`;
-        impSh += `echo "RC 8 Count,$CNT_RC8" >> "$LOG_FILE"\n`;
-        impSh += `echo "RC 12 Count,$CNT_RC12" >> "$LOG_FILE"\n`;
-        impSh += `if [ -n "$FAILED_RC8_LIST" ]; then echo "Transports with RC 8,$FAILED_RC8_LIST" >> "$LOG_FILE"; fi\n`;
-        impSh += `if [ -n "$FAILED_RC12_LIST" ]; then echo "Transports with RC 12,$FAILED_RC12_LIST" >> "$LOG_FILE"; fi\n`;
-        impSh += `echo "Transport import sequence completed. Log written to $LOG_FILE"\n`;
-        downloadFile(impSh, `${sid}_2_import_transports_${ts}.sh`, 'text/x-sh');
+        impSh += 'END_TIME=$(date +%s)\n';
+        impSh += 'ELAPSED_MIN=$(( (END_TIME - START_TIME) / 60 ))\n';
+        impSh += 'echo "" >> "$LOG_FILE"\n';
+        impSh += 'echo "=== SUMMARY BLOCK ===" >> "$LOG_FILE"\n';
+        impSh += 'echo "Total Processed,$CNT_TOTAL" >> "$LOG_FILE"\n';
+        impSh += 'echo "Elapsed Time (Minutes),$ELAPSED_MIN" >> "$LOG_FILE"\n';
+        impSh += 'echo "RC 0 Count,$CNT_RC0" >> "$LOG_FILE"\n';
+        impSh += 'echo "RC 4 Count,$CNT_RC4" >> "$LOG_FILE"\n';
+        impSh += 'echo "RC 8 Count,$CNT_RC8" >> "$LOG_FILE"\n';
+        impSh += 'echo "RC 12 Count,$CNT_RC12" >> "$LOG_FILE"\n';
+        impSh += 'if [ -n "$FAILED_RC8_LIST" ]; then echo "Transports with RC 8,$FAILED_RC8_LIST" >> "$LOG_FILE"; fi\n';
+        impSh += 'if [ -n "$FAILED_RC12_LIST" ]; then echo "Transports with RC 12,$FAILED_RC12_LIST" >> "$LOG_FILE"; fi\n';
+        impSh += 'echo "Transport import sequence completed. Log written to $LOG_FILE"\n';
+        downloadFile(impSh, sid + '_2_import_transports_' + ts + '.sh', 'text/x-sh');
     });
 
     // GENERATE POWERSHELL SCRIPTS (.ps1)
-    document.getElementById('genPsBtn').addEventListener('click', () => {
+    document.getElementById('genPsBtn').addEventListener('click', function() {
         const sid = document.getElementById('targetSid').value.trim().toUpperCase();
         const domSid = document.getElementById('domainSid').value.trim().toUpperCase() || sid;
         const transDir = document.getElementById('transDir').value.trim();
         const client = document.getElementById('targetClient').value.trim();
-        const profile = `${transDir}\\bin\\TP_DOMAIN_${domSid}.PFL`;
-        const bufferPath = `${transDir}\\buffer\\${sid}`;
+        const profile = transDir + '\\bin\\TP_DOMAIN_' + domSid + '.PFL';
+        const bufferPath = transDir + '\\buffer\\' + sid;
         const shouldCleanBuffer = document.querySelector('input[name="bufferCleanStrategy"]:checked').value === 'clean';
         const stopOnError = document.querySelector('input[name="errorHandling"]:checked').value === 'prompt';
         const ts = getFormattedTimestamp();
 
         // 1. Buffer Setup Script (.ps1)
-        let bufPs = `# STEP 1: SAP Buffer Setup Script (PowerShell)\n# Built by Pankaj Kapote\n\n`;
-        bufPs += `$TargetSID = "${sid}"\n$DomainSID = "${domSid}"\n$TargetClient = "${client}"\n$Profile = "${profile}"\n$BufferPath = "${bufferPath}"\n`;
-        bufPs += `$RunTS = Get-Date -Format 'yyyyMMdd_HHmmss'\n$LogFile = "sap_buffer_add_log_$RunTS.log"\n\n`;
+        let bufPs = '# STEP 1: SAP Buffer Setup Script (PowerShell)\n# Built by Pankaj Kapote\n\n';
+        bufPs += '$TargetSID = "' + sid + '"\n$DomainSID = "' + domSid + '"\n$TargetClient = "' + client + '"\n$Profile = "' + profile + '"\n$BufferPath = "' + bufferPath + '"\n';
+        bufPs += '$RunTS = Get-Date -Format \'yyyyMMdd_HHmmss\'\n$LogFile = "sap_buffer_add_log_$RunTS.log"\n\n';
         
-        bufPs += `"1. Backing up buffer file..." | Out-File $LogFile -Append\n`;
-        bufPs += `if (Test-Path $BufferPath) {\n`;
-        bufPs += `  $BackupPath = "\${BufferPath}_backup_$RunTS"\n`;
-        bufPs += `  Copy-Item $BufferPath $BackupPath\n`;
-        bufPs += `  if (-not $?) { Write-Host "Error backing up buffer file! Aborting." -ForegroundColor Red; exit }\n`;
-        bufPs += `  "Backup successfully created: $BackupPath" | Out-File $LogFile -Append\n`;
-        bufPs += `}\n\n`;
+        bufPs += '"1. Backing up buffer file..." | Out-File $LogFile -Append\n';
+        bufPs += 'if (Test-Path $BufferPath) {\n';
+        bufPs += '  $BackupPath = "${BufferPath}_backup_$RunTS"\n';
+        bufPs += '  Copy-Item $BufferPath $BackupPath\n';
+        bufPs += '  if (-not $?) { Write-Host "Error backing up buffer file! Aborting." -ForegroundColor Red; exit }\n';
+        bufPs += '  "Backup successfully created: $BackupPath" | Out-File $LogFile -Append\n';
+        bufPs += '}\n\n';
 
         if (shouldCleanBuffer) {
-            bufPs += `"2. Clearing existing buffer entries..." | Out-File $LogFile -Append\n`;
-            bufPs += `& tp delfrombuffer ALL $TargetSID "pf=$Profile" *>$null\n`;
-            bufPs += `Clear-Content $BufferPath -ErrorAction SilentlyContinue\n\n`;
+            bufPs += '"2. Clearing existing buffer entries..." | Out-File $LogFile -Append\n';
+            bufPs += '& tp delfrombuffer ALL $TargetSID "pf=$Profile" *>$null\n';
+            bufPs += 'Clear-Content $BufferPath -ErrorAction SilentlyContinue\n\n';
         } else {
-            bufPs += `"2. Retaining existing buffer entries..." | Out-File $LogFile -Append\n\n`;
+            bufPs += '"2. Retaining existing buffer entries..." | Out-File $LogFile -Append\n\n';
         }
 
-        bufPs += `"3. Adding selected transports into buffer (u0)..." | Out-File $LogFile -Append\n`;
-        bufPs += `$AddedCount = 0\n$FailedTRs = @()\n\n`;
+        bufPs += '"3. Adding selected transports into buffer (u0)..." | Out-File $LogFile -Append\n';
+        bufPs += '$AddedCount = 0\n$FailedTRs = @()\n\n';
 
         transportQueue.forEach(item => {
-            bufPs += `Write-Host "Adding ${item.tr} (Client: $TargetClient) to buffer..."\n`;
-            bufPs += `& tp addtobuffer ${item.tr} $TargetSID "client=$TargetClient" u0 "pf=$Profile" *>$null\n`;
-            bufPs += `if ($LASTEXITCODE -eq 0) { $AddedCount++ } else { $FailedTRs += "${item.tr}" }\n`;
+            bufPs += 'Write-Host "Adding ' + item.tr + ' (Client: $TargetClient) to buffer..."\n';
+            bufPs += '& tp addtobuffer ' + item.tr + ' $TargetSID "client=$TargetClient" u0 "pf=$Profile" *>$null\n';
+            bufPs += 'if ($LASTEXITCODE -eq 0) { $AddedCount++ } else { $FailedTRs += "' + item.tr + '" }\n';
         });
 
-        bufPs += `\n"" | Out-File $LogFile -Append\n`;
-        bufPs += `"=== BUFFER SETUP SUMMARY ===" | Out-File $LogFile -Append\n`;
-        bufPs += `"Successfully added transports: $AddedCount" | Out-File $LogFile -Append\n`;
-        bufPs += `if ($FailedTRs.Count -gt 0) { "Failed transports: $($FailedTRs -join ', ')" | Out-File $LogFile -Append } else { "All transports successfully queued in buffer." | Out-File $LogFile -Append }\n`;
-        bufPs += `Write-Host "Log recorded to: $LogFile" -ForegroundColor Green\n`;
-        downloadFile(bufPs, `${sid}_1_buffer_setup_${ts}.ps1`, 'text/plain');
+        bufPs += '\n"" | Out-File $LogFile -Append\n';
+        bufPs += '"=== BUFFER SETUP SUMMARY ===" | Out-File $LogFile -Append\n';
+        bufPs += '"Successfully added transports: $AddedCount" | Out-File $LogFile -Append\n';
+        bufPs += 'if ($FailedTRs.Count -gt 0) { "Failed transports: $($FailedTRs -join \', \')" | Out-File $LogFile -Append } else { "All transports successfully queued in buffer." | Out-File $LogFile -Append }\n';
+        bufPs += 'Write-Host "Log recorded to: $LogFile" -ForegroundColor Green\n';
+        downloadFile(bufPs, sid + '_1_buffer_setup_' + ts + '.ps1', 'text/plain');
 
         // 2. Import Execution Script (.ps1)
-        let impPs = `# STEP 2: SAP Transport Import Script (PowerShell)\n# Built by Pankaj Kapote\n\n`;
-        impPs += `$TargetSID = "${sid}"\n$DomainSID = "${domSid}"\n$TargetClient = "${client}"\n$Profile = "${profile}"\n`;
-        impPs += `$RunTS = Get-Date -Format 'yyyyMMdd_HHmmss'\n$LogFile = "sap_import_log_$RunTS.csv"\n`;
-        impPs += `$StartTime = Get-Date\n`;
-        impPs += `$CntTotal=0; $CntRC0=0; $CntRC4=0; $CntRC8=0; $CntRC12=0; $CntOther=0\n`;
-        impPs += `$FailedRC8 = @()\n$FailedRC12 = @()\n\n`;
-        impPs += `"Date,Time,Transport_Number,Target_SID,Target_Client,U_Flag,Return_Code" | Out-File $LogFile\n\n`;
+        let impPs = '# STEP 2: SAP Transport Import Script (PowerShell)\n# Built by Pankaj Kapote\n\n';
+        impPs += '$TargetSID = "' + sid + '"\n$DomainSID = "' + domSid + '"\n$TargetClient = "' + client + '"\n$Profile = "' + profile + '"\n';
+        impPs += '$RunTS = Get-Date -Format \'yyyyMMdd_HHmmss\'\n$LogFile = "sap_import_log_$RunTS.csv"\n';
+        impPs += '$StartTime = Get-Date\n';
+        impPs += '$CntTotal=0; $CntRC0=0; $CntRC4=0; $CntRC8=0; $CntRC12=0; $CntOther=0\n';
+        impPs += '$FailedRC8 = @()\n$FailedRC12 = @()\n\n';
+        impPs += '"Date,Time,Transport_Number,Target_SID,Target_Client,U_Flag,Return_Code" | Out-File $LogFile\n\n';
         
         transportQueue.forEach(item => {
-            impPs += `Write-Host "Importing ${item.tr}..." -ForegroundColor Yellow\n`;
-            impPs += `& tp import ${item.tr} $TargetSID "client=$TargetClient" ${item.uflag} "pf=$Profile" *>$null\n`;
-            impPs += `$RC = $LASTEXITCODE\n`;
-            impPs += `"$(Get-Date -Format 'yyyy-MM-dd'),$(Get-Date -Format 'HH:mm:ss'),${item.tr},$TargetSID,$TargetClient,${item.uflag},$RC" | Out-File $LogFile -Append\n`;
-            impPs += `$CntTotal++\n`;
-            impPs += `switch ($RC) {\n`;
-            impPs += `  0 { $CntRC0++ }\n`;
-            impPs += `  4 { $CntRC4++ }\n`;
-            impPs += `  8 { $CntRC8++; $FailedRC8 += "${item.tr}" }\n`;
-            impPs += `  12 { $CntRC12++; $FailedRC12 += "${item.tr}" }\n`;
-            impPs += `  default { $CntOther++ }\n`;
-            impPs += `}\n`;
+            impPs += 'Write-Host "Importing ' + item.tr + '..." -ForegroundColor Yellow\n';
+            impPs += '& tp import ' + item.tr + ' $TargetSID "client=$TargetClient" ' + item.uflag + ' "pf=$Profile" *>$null\n';
+            impPs += '$RC = $LASTEXITCODE\n';
+            impPs += '"$(Get-Date -Format \'yyyy-MM-dd\'),$(Get-Date -Format \'HH:mm:ss\'),' + item.tr + ',$TargetSID,$TargetClient,' + item.uflag + ',$RC" | Out-File $LogFile -Append\n';
+            impPs += '$CntTotal++\n';
+            impPs += 'switch ($RC) {\n';
+            impPs += '  0 { $CntRC0++ }\n';
+            impPs += '  4 { $CntRC4++ }\n';
+            impPs += '  8 { $CntRC8++; $FailedRC8 += "' + item.tr + '" }\n';
+            impPs += '  12 { $CntRC12++; $FailedRC12 += "' + item.tr + '" }\n';
+            impPs += '  default { $CntOther++ }\n';
+            impPs += '}\n';
 
             if (stopOnError) {
-                impPs += `if ($RC -eq 8 -or $RC -eq 12) {\n`;
-                impPs += `  $ans1 = Read-Host "Warning: RC $RC on ${item.tr}. Do you want to continue? (Y/N)"\n`;
-                impPs += `  if ($ans1 -eq "Y" -or $ans1 -eq "y") {\n`;
-                impPs += `    $ans2 = Read-Host "DOUBLE CONFIRMATION: Type YES to proceed"\n`;
-                impPs += `    if ($ans2 -ne "YES") { exit }\n`;
-                impPs += `  } else { exit }\n`;
-                impPs += `}\n`;
+                impPs += 'if ($RC -eq 8 -or $RC -eq 12) {\n';
+                impPs += '  $ans1 = Read-Host "Warning: RC $RC on ' + item.tr + '. Do you want to continue? (Y/N)"\n';
+                impPs += '  if ($ans1 -eq "Y" -or $ans1 -eq "y") {\n';
+                impPs += '    $ans2 = Read-Host "DOUBLE CONFIRMATION: Type YES to proceed"\n';
+                impPs += '    if ($ans2 -ne "YES") { exit }\n';
+                impPs += '  } else { exit }\n';
+                impPs += '}\n';
             }
-            impPs += `\n`;
+            impPs += '\n';
         });
 
-        impPs += `$EndTime = Get-Date\n`;
-        impPs += `$ElapsedMin = [math]::Round(($EndTime - $StartTime).TotalMinutes, 2)\n`;
-        impPs += `"" | Out-File $LogFile -Append\n`;
-        impPs += `"=== SUMMARY BLOCK ===" | Out-File $LogFile -Append\n`;
-        impPs += `"Total Processed,$CntTotal" | Out-File $LogFile -Append\n`;
-        impPs += `"Elapsed Time (Minutes),$ElapsedMin" | Out-File $LogFile -Append\n`;
-        impPs += `"RC 0 Count,$CntRC0" | Out-File $LogFile -Append\n`;
-        impPs += `"RC 4 Count,$CntRC4" | Out-File $LogFile -Append\n`;
-        impPs += `"RC 8 Count,$CntRC8" | Out-File $LogFile -Append\n`;
-        impPs += `"RC 12 Count,$CntRC12" | Out-File $LogFile -Append\n`;
-        impPs += `if ($FailedRC8.Count -gt 0) { "Transports with RC 8,$($FailedRC8 -join ' ')" | Out-File $LogFile -Append }\n`;
-        impPs += `if ($FailedRC12.Count -gt 0) { "Transports with RC 12,$($FailedRC12 -join ' ')" | Out-File $LogFile -Append }\n`;
-        impPs += `Write-Host "Transport import sequence completed. Log saved to $LogFile" -ForegroundColor Green\n`;
-        downloadFile(impPs, `${sid}_2_import_transports_${ts}.ps1`, 'text/plain');
+        impPs += '$EndTime = Get-Date\n';
+        impPs += '$ElapsedMin = [math]::Round(($EndTime - $StartTime).TotalMinutes, 2)\n';
+        impPs += '"" | Out-File $LogFile -Append\n';
+        impPs += '"=== SUMMARY BLOCK ===" | Out-File $LogFile -Append\n';
+        impPs += '"Total Processed,$CntTotal" | Out-File $LogFile -Append\n';
+        impPs += '"Elapsed Time (Minutes),$ElapsedMin" | Out-File $LogFile -Append\n';
+        impPs += '"RC 0 Count,$CntRC0" | Out-File $LogFile -Append\n';
+        impPs += '"RC 4 Count,$CntRC4" | Out-File $LogFile -Append\n';
+        impPs += '"RC 8 Count,$CntRC8" | Out-File $LogFile -Append\n';
+        impPs += '"RC 12 Count,$CntRC12" | Out-File $LogFile -Append\n';
+        impPs += 'if ($FailedRC8.Count -gt 0) { "Transports with RC 8,$($FailedRC8 -join \' \')" | Out-File $LogFile -Append }\n';
+        impPs += 'if ($FailedRC12.Count -gt 0) { "Transports with RC 12,$($FailedRC12 -join \' \')" | Out-File $LogFile -Append }\n';
+        impPs += 'Write-Host "Transport import sequence completed. Log saved to $LogFile" -ForegroundColor Green\n';
+        downloadFile(impPs, sid + '_2_import_transports_' + ts + '.ps1', 'text/plain');
     });
 
     // GENERATE WINDOWS BATCH SCRIPTS (.bat)
-    document.getElementById('genBatBtn').addEventListener('click', () => {
+    document.getElementById('genBatBtn').addEventListener('click', function() {
         const sid = document.getElementById('targetSid').value.trim().toUpperCase();
         const domSid = document.getElementById('domainSid').value.trim().toUpperCase() || sid;
         const transDir = document.getElementById('transDir').value.trim();
         const client = document.getElementById('targetClient').value.trim();
-        const profile = `${transDir}\\bin\\TP_DOMAIN_${domSid}.PFL`;
-        const bufferPath = `${transDir}\\buffer\\${sid}`;
+        const profile = transDir + '\\bin\\TP_DOMAIN_' + domSid + '.PFL';
+        const bufferPath = transDir + '\\buffer\\' + sid;
         const shouldCleanBuffer = document.querySelector('input[name="bufferCleanStrategy"]:checked').value === 'clean';
         const stopOnError = document.querySelector('input[name="errorHandling"]:checked').value === 'prompt';
         const ts = getFormattedTimestamp();
 
         // 1. Buffer Setup Script (.bat)
-        let bufBat = `@echo off\nREM STEP 1: SAP Buffer Setup Script (Windows Batch)\nREM Built by Pankaj Kapote\n\n`;
-        bufBat += `set TARGET_SID=${sid}\nset DOMAIN_SID=${domSid}\nset TARGET_CLIENT=${client}\nset PROFILE=${profile}\nset BUFFER_PATH=${bufferPath}\n\n`;
-        bufBat += `REM Generate runtime timestamp YYYYMMDD_HHMMSS\n`;
-        bufBat += `for /f "tokens=2 delims==" %%I in ('wmic os get localdatetime /value') do set dt=%%I\n`;
-        bufBat += `set RUN_TS=%dt:~0,8%_%dt:~8,6%\n`;
-        bufBat += `set LOG_FILE=sap_buffer_add_log_%RUN_TS%.log\n\n`;
+        let bufBat = '@echo off\nREM STEP 1: SAP Buffer Setup Script (Windows Batch)\nREM Built by Pankaj Kapote\n\n';
+        bufBat += 'set TARGET_SID=' + sid + '\nset DOMAIN_SID=' + domSid + '\nset TARGET_CLIENT=' + client + '\nset PROFILE=' + profile + '\nset BUFFER_PATH=' + bufferPath + '\n\n';
+        bufBat += 'REM Generate runtime timestamp YYYYMMDD_HHMMSS\n';
+        bufBat += 'for /f "tokens=2 delims==" %%I in (\'wmic os get localdatetime /value\') do set dt=%%I\n';
+        bufBat += 'set RUN_TS=%dt:~0,8%_%dt:~8,6%\n';
+        bufBat += 'set LOG_FILE=sap_buffer_add_log_%RUN_TS%.log\n\n';
         
-        bufBat += `echo 1. Backing up existing buffer file...\n`;
-        bufBat += `if exist "%BUFFER_PATH%" (\n`;
-        bufBat += `    copy "%BUFFER_PATH%" "%BUFFER_PATH%_backup_%RUN_TS%.bak" >nul\n`;
-        bufBat += `    if %ERRORLEVEL% NEQ 0 ( echo Error backing up buffer file! & goto :ABORT )\n`;
-        bufBat += `    echo Backup created: %BUFFER_PATH%_backup_%RUN_TS%.bak >> %LOG_FILE%\n`;
-        bufBat += `)\n\n`;
+        bufBat += 'echo 1. Backing up existing buffer file...\n';
+        bufBat += 'if exist "%BUFFER_PATH%" (\n';
+        bufBat += '    copy "%BUFFER_PATH%" "%BUFFER_PATH%_backup_%RUN_TS%.bak" >nul\n';
+        bufBat += '    if %ERRORLEVEL% NEQ 0 ( echo Error backing up buffer file! & goto :ABORT )\n';
+        bufBat += ')\n\n';
 
         if (shouldCleanBuffer) {
-            bufBat += `echo 2. Clearing existing buffer entries...\n`;
-            bufBat += `tp delfrombuffer ALL %TARGET_SID% pf=%PROFILE% >nul 2>&1\n`;
-            bufBat += `type nul > "%BUFFER_PATH%"\n\n`;
+            bufBat += 'echo 2. Clearing existing buffer entries...\n';
+            bufBat += 'tp delfrombuffer ALL %TARGET_SID% pf=%PROFILE% >nul 2>&1\n';
+            bufBat += 'type nul > "%BUFFER_PATH%"\n\n';
         } else {
-            bufBat += `echo 2. Retaining existing buffer entries...\n\n`;
+            bufBat += 'echo 2. Retaining existing buffer entries...\n\n';
         }
 
-        bufBat += `echo 3. Adding selected transports into buffer (u0)...\n`;
-        bufBat += `set ADDED_COUNT=0\nset FAILED_LIST=\n\n`;
+        bufBat += 'echo 3. Adding selected transports into buffer (u0)...\n';
+        bufBat += 'set ADDED_COUNT=0\nset FAILED_LIST=\n\n';
 
         transportQueue.forEach(item => {
-            bufBat += `echo Adding ${item.tr} to buffer...\n`;
-            bufBat += `tp addtobuffer ${item.tr} %TARGET_SID% client=%TARGET_CLIENT% u0 pf=%PROFILE% >nul 2>&1\n`;
-            bufBat += `if %ERRORLEVEL% EQU 0 (\n`;
-            bufBat += `    set /a ADDED_COUNT+=1\n`;
-            bufBat += `) else (\n`;
-            bufBat += `    echo ERROR: Failed to add ${item.tr}\n`;
-            bufBat += `    set FAILED_LIST=%FAILED_LIST% ${item.tr}\n`;
-            bufBat += `)\n`;
+            bufBat += 'echo Adding ' + item.tr + ' to buffer...\n';
+            bufBat += 'tp addtobuffer ' + item.tr + ' %TARGET_SID% client=%TARGET_CLIENT% u0 pf=%PROFILE% >nul 2>&1\n';
+            bufBat += 'if %ERRORLEVEL% EQU 0 (\n';
+            bufBat += '    set /a ADDED_COUNT+=1\n';
+            bufBat += ') else (\n';
+            bufBat += '    echo ERROR: Failed to add ' + item.tr + '\n';
+            bufBat += '    set FAILED_LIST=%FAILED_LIST% ' + item.tr + '\n';
+            bufBat += ')\n';
         });
 
-        bufBat += `\necho.\necho === BUFFER SETUP SUMMARY === >> %LOG_FILE%\necho Successfully added: %ADDED_COUNT% >> %LOG_FILE%\necho Failed TRs: %FAILED_LIST% >> %LOG_FILE%\n`;
-        bufBat += `echo Buffer setup completed. Log recorded in %LOG_FILE%\ngoto :END\n:ABORT\necho Buffer setup failed!\n:END\n`;
-        downloadFile(bufBat, `${sid}_1_buffer_setup_${ts}.bat`, 'text/plain');
+        bufBat += '\necho.\necho === BUFFER SETUP SUMMARY === >> %LOG_FILE%\necho Successfully added: %ADDED_COUNT% >> %LOG_FILE%\necho Failed TRs: %FAILED_LIST% >> %LOG_FILE%\n';
+        bufBat += 'echo Buffer setup completed. Log recorded in %LOG_FILE%\ngoto :END\n:ABORT\necho Buffer setup failed!\n:END\n';
+        downloadFile(bufBat, sid + '_1_buffer_setup_' + ts + '.bat', 'text/plain');
 
         // 2. Import Execution Script (.bat)
-        let impBat = `@echo off\nREM STEP 2: SAP Transport Import Script (Windows Batch)\nREM Built by Pankaj Kapote\n\n`;
-        impBat += `set TARGET_SID=${sid}\nset DOMAIN_SID=${domSid}\nset TARGET_CLIENT=${client}\nset PROFILE=${profile}\n\n`;
-        impBat += `REM Generate runtime timestamp YYYYMMDD_HHMMSS\n`;
-        impBat += `for /f "tokens=2 delims==" %%I in ('wmic os get localdatetime /value') do set dt=%%I\n`;
-        impBat += `set RUN_TS=%dt:~0,8%_%dt:~8,6%\n`;
-        impBat += `set LOG_FILE=sap_import_log_%RUN_TS%.csv\n\n`;
-        impBat += `set CNT_RC8=0\nset CNT_RC12=0\nset RC8_LIST=\nset RC12_LIST=\n\n`;
-        impBat += `echo Date,Time,Transport_Number,Target_SID,Target_Client,U_Flag,Return_Code > %LOG_FILE%\n\n`;
+        let impBat = '@echo off\nREM STEP 2: SAP Transport Import Script (Windows Batch)\nREM Built by Pankaj Kapote\n\n';
+        impBat += 'set TARGET_SID=' + sid + '\nset DOMAIN_SID=' + domSid + '\nset TARGET_CLIENT=' + client + '\nset PROFILE=' + profile + '\n\n';
+        impBat += 'REM Generate runtime timestamp YYYYMMDD_HHMMSS\n';
+        impBat += 'for /f "tokens=2 delims==" %%I in (\'wmic os get localdatetime /value\') do set dt=%%I\n';
+        impBat += 'set RUN_TS=%dt:~0,8%_%dt:~8,6%\n';
+        impBat += 'set LOG_FILE=sap_import_log_%RUN_TS%.csv\n\n';
+        impBat += 'set CNT_RC8=0\nset CNT_RC12=0\nset RC8_LIST=\nset RC12_LIST=\n\n';
+        impBat += 'echo Date,Time,Transport_Number,Target_SID,Target_Client,U_Flag,Return_Code > %LOG_FILE%\n\n';
         
         transportQueue.forEach(item => {
-            impBat += `echo Importing ${item.tr}...\n`;
-            impBat += `tp import ${item.tr} %TARGET_SID% client=%TARGET_CLIENT% ${item.uflag} pf=%PROFILE% >nul 2>&1\n`;
-            impBat += `set RC=%ERRORLEVEL%\n`;
-            impBat += `echo %DATE%,%TIME%,${item.tr},%TARGET_SID%,%TARGET_CLIENT%,${item.uflag},%RC% >> %LOG_FILE%\n`;
-            if %RC% EQU 8 ( set /a CNT_RC8+=1 & set RC8_LIST=%RC8_LIST% ${item.tr} )\n`;
-            if %RC% EQU 12 ( set /a CNT_RC12+=1 & set RC12_LIST=%RC12_LIST% ${item.tr} )\n`;
+            impBat += 'echo Importing ' + item.tr + '...\n';
+            impBat += 'tp import ' + item.tr + ' %TARGET_SID% client=%TARGET_CLIENT% ' + item.uflag + ' pf=%PROFILE% >nul 2>&1\n';
+            impBat += 'set RC=%ERRORLEVEL%\n';
+            impBat += 'echo %DATE%,%TIME%,' + item.tr + ',%TARGET_SID%,%TARGET_CLIENT%,' + item.uflag + ',%RC% >> %LOG_FILE%\n';
+            impBat += 'if %RC% EQU 8 ( set /a CNT_RC8+=1 & set RC8_LIST=%RC8_LIST% ' + item.tr + ' )\n';
+            impBat += 'if %RC% EQU 12 ( set /a CNT_RC12+=1 & set RC12_LIST=%RC12_LIST% ' + item.tr + ' )\n';
             
             if (stopOnError) {
-                impBat += `if %RC% GEQ 8 (\n`;
-                impBat += `    echo WARNING: Transport ${item.tr} ended with RC %RC%\n`;
-                impBat += `    set /p CONF="Type YES to continue importing: "\n`;
-                impBat += `    if /i not "%CONF%"=="YES" goto :ABORT\n`;
-                impBat += `)\n`;
+                impBat += 'if %RC% GEQ 8 (\n';
+                impBat += '    echo WARNING: Transport ' + item.tr + ' ended with RC %RC%\n';
+                impBat += '    set /p CONF="Type YES to continue importing: "\n';
+                impBat += '    if /i not "%CONF%"=="YES" goto :ABORT\n';
+                impBat += ')\n';
             }
-            impBat += `\n`;
+            impBat += '\n';
         });
 
-        impBat += `echo.\necho === SUMMARY BLOCK === >> %LOG_FILE%\n`;
-        impBat += `if defined RC8_LIST echo Transports with RC 8: %RC8_LIST% >> %LOG_FILE%\n`;
-        impBat += `if defined RC12_LIST echo Transports with RC 12: %RC12_LIST% >> %LOG_FILE%\n`;
-        impBat += `echo Import process completed. Summary logged to %LOG_FILE%\ngoto :END\n:ABORT\necho Import sequence aborted.\n:END\n`;
-        downloadFile(impBat, `${sid}_2_import_transports_${ts}.bat`, 'text/plain');
+        impBat += 'echo.\necho === SUMMARY BLOCK === >> %LOG_FILE%\n';
+        impBat += 'if defined RC8_LIST echo Transports with RC 8: %RC8_LIST% >> %LOG_FILE%\n';
+        impBat += 'if defined RC12_LIST echo Transports with RC 12: %RC12_LIST% >> %LOG_FILE%\n';
+        impBat += 'echo Import process completed. Summary logged to %LOG_FILE%\ngoto :END\n:ABORT\necho Import sequence aborted.\n:END\n';
+        downloadFile(impBat, sid + '_2_import_transports_' + ts + '.bat', 'text/plain');
     });
 </script>
 </body>
