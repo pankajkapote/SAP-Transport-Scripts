@@ -208,13 +208,25 @@
 
         .alert-box {
             padding: 12px 16px;
-            background: #fff3cd;
-            border: 1px solid #ffeeba;
-            color: #856404;
             border-radius: 4px;
             margin-bottom: 16px;
             display: none;
             font-size: 13.5px;
+        }
+        .alert-warning {
+            background: #fff3cd;
+            border: 1px solid #ffeeba;
+            color: #856404;
+        }
+        .alert-error {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+        .alert-success {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
         }
 
         table {
@@ -242,21 +254,23 @@
             <div class="tagline">Built by a BASIS guy, for BASIS guys — Pankaj Kapote</div>
         </div>
         <div>
-            <button id="resetAllBtn" class="btn btn-reset">Reset All</button>
+            <button id="resetAllBtn" class="btn btn-reset" onclick="handleResetAll()">Reset All</button>
         </div>
     </header>
 
     <div class="tool-info">
         <h4>Buffer & Import Automation Strategy</h4>
         <ul>
-            <li><strong>Timestamped Buffer Copies:</strong> Buffer backup files are dynamically suffixed with the runtime execution timestamp (<code>&lt;SID&gt;_backup_YYYYMMDD_HHMMSS</code>) to ensure no prior backup is ever overwritten.</li>
-            <li><strong>Decoupled Domain SID vs. Target SID:</strong> Specify the <strong>Transport Domain SID</strong> independently from the <strong>Target System SID</strong> so the correct profile path (<code>TP_DOMAIN_&lt;DOM_SID&gt;.PFL</code>) is resolved when importing systems in a centralized domain.</li>
-            <li><strong>Preserved Sequence & Re-import Flag:</strong> Transports are queued in exact input sequence. Repetitions are tagged (<code>x1</code>, <code>x2</code>...). <code>tp addtobuffer</code> runs with unconditional flags (<code>u0</code>) so repeat transports and existing buffer items are marked for re-import without error.</li>
-            <li><strong>Configurable Buffer Cleanup:</strong> Choose whether to clean the target buffer before adding or simply append transports to the existing system buffer.</li>
-            <li><strong>Concise Import Error Summaries:</strong> Execution summary logs record RC counts and list <strong>only RC 8 and RC 12 requests</strong>.</li>
+            <li><strong>Automatic OS Path Normalization:</strong> Windows scripts automatically convert directory separators to backslashes (<code>\</code>), and Unix/Linux scripts use forward slashes (<code>/</code>), preventing mixed-path syntax errors[cite: 7, 8].</li>
+            <li><strong>Timestamped Buffer Copies & Robocopy Timestamps:</strong> Windows Batch uses native <code>robocopy</code> date parsing to generate locale-independent <code>YYYYMMDD_HHMMSS</code> timestamps without relying on WMIC[cite: 8].</li>
+            <li><strong>Decoupled Domain SID vs. Target SID:</strong> Specify the <strong>Transport Domain SID</strong> independently from the <strong>Target System SID</strong> so the profile path (<code>TP_DOMAIN_&lt;DOM_SID&gt;.PFL</code>) resolves properly under centralized domain configurations[cite: 8].</li>
+            <li><strong>Sequence Preservation & Re-import:</strong> Input sequence is maintained, duplicate entries are flagged (<code>x1</code>, <code>x2</code>...), and <code>tp addtobuffer</code> includes <code>u0</code> so repeat transports enter the buffer reliably[cite: 8].</li>
+            <li><strong>Configurable Buffer Cleanup:</strong> Choose whether to clean the target buffer before adding or simply append transports to the existing system buffer[cite: 8].</li>
+            <li><strong>Concise Import Summaries:</strong> Logs capture return codes and list <strong>only RC 8 and RC 12 failures</strong>[cite: 8].</li>
         </ul>
     </div>
 
+    <!-- UI Alert Banner -->
     <div id="alertBox" class="alert-box"></div>
 
     <div class="grid">
@@ -296,7 +310,7 @@
                 <label>Default U-Flag</label>
                 <input type="text" id="defaultUFlag" value="u12">
             </div>
-            <button id="parseBtn" class="btn" style="width:100%; margin-top: 10px;">Process & Flag Transports</button>
+            <button id="parseBtn" class="btn" style="width:100%; margin-top: 10px;" onclick="handleParseTransports()">Process & Flag Transports</button>
         </div>
 
         <!-- Script Export Options -->
@@ -330,15 +344,15 @@
             <div class="script-export-box">
                 <div class="script-row">
                     <span class="script-label">Linux / Unix Shell</span>
-                    <button id="genBashBtn" class="btn" disabled>Export (.sh)</button>
+                    <button id="genBashBtn" class="btn" disabled onclick="handleGenerateBash()">Export (.sh)</button>
                 </div>
                 <div class="script-row">
                     <span class="script-label">Windows PowerShell</span>
-                    <button id="genPsBtn" class="btn btn-ps" disabled>Export (.ps1)</button>
+                    <button id="genPsBtn" class="btn btn-ps" disabled onclick="handleGeneratePs()">Export (.ps1)</button>
                 </div>
                 <div class="script-row">
                     <span class="script-label">Windows Batch</span>
-                    <button id="genBatBtn" class="btn btn-bat" disabled>Export (.bat)</button>
+                    <button id="genBatBtn" class="btn btn-bat" disabled onclick="handleGenerateBat()">Export (.bat)</button>
                 </div>
             </div>
         </div>
@@ -366,130 +380,154 @@
 </div>
 
 <script>
-    let rawTransports = [];
-    let transportQueue = [];
+    var rawTransports = [];
+    var transportQueue = [];
 
-    // Clear opposite input when one is modified
-    document.getElementById('fileInput').addEventListener('change', function() {
-        if (this.files && this.files.length > 0) {
-            document.getElementById('pasteInput').value = '';
+    function normalizeWindowsPath(pathStr) {
+        if (!pathStr) return "";
+        return pathStr.trim().replace(/\//g, "\\").replace(/\\+$/, "");
+    }
+
+    function normalizeUnixPath(pathStr) {
+        if (!pathStr) return "";
+        return pathStr.trim().replace(/\\/g, "/").replace(/\/+$/, "");
+    }
+
+    function showAlert(msg, type) {
+        var box = document.getElementById("alertBox");
+        var cls = "alert-warning";
+        if (type === "error") cls = "alert-error";
+        if (type === "success") cls = "alert-success";
+        box.className = "alert-box " + cls;
+        box.innerHTML = msg;
+        box.style.display = "block";
+    }
+
+    function hideAlert() {
+        var box = document.getElementById("alertBox");
+        box.style.display = "none";
+        box.innerHTML = "";
+    }
+
+    function handleParseTransports() {
+        hideAlert();
+        var fileInput = document.getElementById("fileInput");
+        var file = (fileInput && fileInput.files && fileInput.files.length > 0) ? fileInput.files[0] : null;
+        var pasteText = document.getElementById("pasteInput").value.trim();
+
+        if (pasteText.length > 0) {
+            var lines = pasteText.split(/\r?\n/);
+            parseAndFlagTransports(lines);
+            return;
         }
-    });
-
-    document.getElementById('pasteInput').addEventListener('input', function() {
-        if (this.value.trim().length > 0) {
-            document.getElementById('fileInput').value = '';
-        }
-    });
-
-    // Action button: Process & Flag Transports
-    document.getElementById('parseBtn').addEventListener('click', function() {
-        const fileInput = document.getElementById('fileInput');
-        const file = (fileInput.files && fileInput.files.length > 0) ? fileInput.files[0] : null;
-        const pasteText = document.getElementById('pasteInput').value.trim();
 
         if (file) {
-            const fileName = file.name.toLowerCase();
-            const isExcel = fileName.endsWith('.xlsx') || fileName.endsWith('.xls');
+            var fileName = file.name.toLowerCase();
+            var isExcel = fileName.indexOf(".xlsx") > -1 || fileName.indexOf(".xls") > -1;
 
             if (isExcel) {
-                if (typeof XLSX === 'undefined') {
-                    alert('SheetJS Excel library could not be loaded (offline mode).\nPlease save your Excel file as CSV or TXT, or paste the transport list into the textarea.');
+                if (typeof XLSX === "undefined") {
+                    showAlert("SheetJS Excel library could not be reached (offline mode). Please save your spreadsheet as CSV or TXT, or paste the TRs into the text box.", "error");
                     return;
                 }
-                const reader = new FileReader();
+                var reader = new FileReader();
                 reader.onload = function(e) {
                     try {
-                        const data = new Uint8Array(e.target.result);
-                        const workbook = XLSX.read(data, { type: 'array' });
-                        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-                        const json = XLSX.utils.sheet_to_json(firstSheet, { header: 1 });
-                        const lines = [];
-                        json.forEach(row => {
-                            if (row && row.length > 0) {
-                                lines.push(row.join(','));
+                        var data = new Uint8Array(e.target.result);
+                        var workbook = XLSX.read(data, { type: "array" });
+                        var firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+                        var json = XLSX.utils.sheet_to_json(firstSheet, { header: 1 });
+                        var lines = [];
+                        for (var i = 0; i < json.length; i++) {
+                            if (json[i] && json[i].length > 0) {
+                                lines.push(json[i].join(","));
                             }
-                        });
+                        }
                         parseAndFlagTransports(lines);
                     } catch (err) {
-                        alert('Error reading Excel file: ' + err.message);
+                        showAlert("Error reading Excel file: " + err.message, "error");
                     }
                 };
                 reader.readAsArrayBuffer(file);
             } else {
-                const reader = new FileReader();
-                reader.onload = function(e) {
-                    const text = e.target.result || '';
-                    const lines = text.split(/\r?\n/);
+                var textReader = new FileReader();
+                textReader.onload = function(e) {
+                    var text = e.target.result || "";
+                    var lines = text.split(/\r?\n/);
                     parseAndFlagTransports(lines);
                 };
-                reader.readAsText(file);
+                textReader.readAsText(file);
             }
-        } else if (pasteText.length > 0) {
-            const lines = pasteText.split(/\r?\n/);
-            parseAndFlagTransports(lines);
-        } else {
-            alert('Please select a file or paste transport IDs into the textarea first.');
-        }
-    });
-
-    function parseAndFlagTransports(lines) {
-        const defaultUFlag = document.getElementById('defaultUFlag').value.trim() || 'u12';
-        rawTransports = [];
-
-        lines.forEach(line => {
-            const clean = line.trim();
-            if (clean && !clean.toLowerCase().startsWith('header') && !clean.toLowerCase().startsWith('transport')) {
-                const parts = clean.split(/[\t,;]/);
-                const tr = parts[0].trim().toUpperCase();
-                const uflag = (parts.length > 1 && parts[1].trim()) ? parts[1].trim() : defaultUFlag;
-                if (tr) {
-                    rawTransports.push({ tr: tr, uflag: uflag });
-                }
-            }
-        });
-
-        if (rawTransports.length === 0) {
-            alert('No valid transport requests found. Ensure lines contain transport IDs (e.g., DEVK900001).');
             return;
         }
 
-        transportQueue = rawTransports.map(item => ({ tr: item.tr, uflag: item.uflag }));
+        showAlert("Please paste transport IDs into the textarea or select a file first.", "error");
+    }
+
+    function parseAndFlagTransports(lines) {
+        var defaultUFlag = document.getElementById("defaultUFlag").value.trim() || "u12";
+        rawTransports = [];
+
+        for (var i = 0; i < lines.length; i++) {
+            var clean = lines[i].trim();
+            clean = clean.replace(/^["']|["']$/g, "");
+            if (clean.length > 0 && clean.toLowerCase().indexOf("header") !== 0 && clean.toLowerCase().indexOf("transport") !== 0) {
+                var parts = clean.split(/[\t,;]/);
+                var tr = parts[0].trim().toUpperCase();
+                var uflag = (parts.length > 1 && parts[1].trim().length > 0) ? parts[1].trim() : defaultUFlag;
+                if (tr.length > 0) {
+                    rawTransports.push({ tr: tr, uflag: uflag });
+                }
+            }
+        }
+
+        if (rawTransports.length === 0) {
+            showAlert("No valid transport requests found in input. Ensure each line has a TR ID (e.g., DEVK900001).", "error");
+            return;
+        }
+
+        transportQueue = rawTransports.map(function(item) {
+            return { tr: item.tr, uflag: item.uflag };
+        });
+
         recalculateDuplicatesAndRender();
     }
 
     function recalculateDuplicatesAndRender() {
-        const trCounts = {};
-        transportQueue.forEach(item => {
+        var trCounts = {};
+        for (var i = 0; i < transportQueue.length; i++) {
+            var item = transportQueue[i];
             trCounts[item.tr] = (trCounts[item.tr] || 0) + 1;
             item.occurrence = trCounts[item.tr];
-        });
+        }
 
-        const totalCounts = {};
-        transportQueue.forEach(item => {
-            totalCounts[item.tr] = (totalCounts[item.tr] || 0) + 1;
-        });
-        transportQueue.forEach(item => {
-            item.isDuplicate = totalCounts[item.tr] > 1;
-        });
+        var totalCounts = {};
+        for (var j = 0; j < transportQueue.length; j++) {
+            var trId = transportQueue[j].tr;
+            totalCounts[trId] = (totalCounts[trId] || 0) + 1;
+        }
 
-        const alertBox = document.getElementById('alertBox');
-        const dupCount = Object.values(totalCounts).filter(c => c > 1).length;
-        if (dupCount > 0) {
-            alertBox.style.display = 'block';
-            alertBox.innerHTML = '<strong>Notice:</strong> Found duplicate transport entries in the list. Repetitions are explicitly flagged below (e.g., x1, x2). You can add or remove any entry manually.';
+        var hasDupes = false;
+        for (var k = 0; k < transportQueue.length; k++) {
+            var itm = transportQueue[k];
+            itm.isDuplicate = totalCounts[itm.tr] > 1;
+            if (itm.isDuplicate) hasDupes = true;
+        }
+
+        if (hasDupes) {
+            showAlert("Successfully loaded " + transportQueue.length + " transport(s). Duplicate transport entries detected in the sequence. Repetitions are tagged with tags like <b>x1, x2</b>. You may manually delete any row using ✖ Remove.", "warning");
         } else {
-            alertBox.style.display = 'none';
+            showAlert("Successfully loaded " + transportQueue.length + " transport(s) into the sequence.", "success");
         }
 
         renderTable();
     }
 
     function renderTable() {
-        const tbody = document.querySelector('#trTable tbody');
-        const sid = document.getElementById('targetSid').value.trim().toUpperCase();
-        const client = document.getElementById('targetClient').value.trim();
-        tbody.innerHTML = '';
+        var tbody = document.querySelector("#trTable tbody");
+        var sid = document.getElementById("targetSid").value.trim().toUpperCase();
+        var client = document.getElementById("targetClient").value.trim();
+        tbody.innerHTML = "";
 
         if (transportQueue.length === 0) {
             tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:#888;">No transports loaded yet.</td></tr>';
@@ -497,43 +535,44 @@
             return;
         }
 
-        transportQueue.forEach((item, index) => {
-            const tr = document.createElement('tr');
+        for (var i = 0; i < transportQueue.length; i++) {
+            var item = transportQueue[i];
+            var tr = document.createElement("tr");
             if (item.isDuplicate) {
-                tr.classList.add('tr-dup-row');
+                tr.className = "tr-dup-row";
             }
 
-            const dupBadge = item.isDuplicate ? ('<span class="dup-badge">x' + item.occurrence + '</span>') : '';
+            var dupBadge = item.isDuplicate ? ('<span class="dup-badge">x' + item.occurrence + '</span>') : "";
 
             tr.innerHTML = 
-                '<td>' + (index + 1) + '</td>' +
-                '<td><strong>' + item.tr + '</strong>' + dupBadge + '</td>' +
-                '<td>' + sid + '</td>' +
-                '<td>' + client + '</td>' +
-                '<td><input type="text" value="' + item.uflag + '" onchange="updateUFlag(' + index + ', this.value)" style="width:70px;"></td>' +
-                '<td>' +
+                "<td>" + (i + 1) + "</td>" +
+                "<td><strong>" + item.tr + "</strong>" + dupBadge + "</td>" +
+                "<td>" + sid + "</td>" +
+                "<td>" + client + "</td>" +
+                '<td><input type="text" value="' + item.uflag + '" onchange="updateUFlag(' + i + ', this.value)" style="width:70px;"></td>' +
+                "<td>" +
                     '<div class="btn-action-group">' +
-                        '<button class="btn-add" onclick="addTransportAfter(' + index + ')">➕ Add</button>' +
-                        '<button class="btn-remove" onclick="removeTransport(' + index + ')">✖ Remove</button>' +
-                    '</div>' +
-                '</td>';
+                        '<button class="btn-add" onclick="addTransportAfter(' + i + ')">➕ Add</button>' +
+                        '<button class="btn-remove" onclick="removeTransport(' + i + ')">✖ Remove</button>' +
+                    "</div>" +
+                "</td>";
             tbody.appendChild(tr);
-        });
+        }
 
-        document.getElementById('trCount').innerText = transportQueue.length;
+        document.getElementById("trCount").innerText = transportQueue.length;
         toggleActionButtons(false);
     }
 
     function addTransportAfter(index) {
-        const defaultUFlag = document.getElementById('defaultUFlag').value.trim() || 'u12';
-        const input = prompt("Enter new Transport Request ID (or TR_ID, U-FLAG e.g. DEVK900099, u128):");
+        var defaultUFlag = document.getElementById("defaultUFlag").value.trim() || "u12";
+        var input = prompt("Enter new Transport Request ID (or TR_ID, U-FLAG e.g. DEVK900099, u128):");
         
         if (input) {
-            const parts = input.split(/[\t,;]/);
-            const tr = parts[0].trim().toUpperCase();
-            const uflag = (parts.length > 1 && parts[1].trim()) ? parts[1].trim() : defaultUFlag;
+            var parts = input.split(/[\t,;]/);
+            var tr = parts[0].trim().toUpperCase();
+            var uflag = (parts.length > 1 && parts[1].trim().length > 0) ? parts[1].trim() : defaultUFlag;
 
-            if (tr) {
+            if (tr.length > 0) {
                 transportQueue.splice(index + 1, 0, { tr: tr, uflag: uflag });
                 recalculateDuplicatesAndRender();
             }
@@ -546,9 +585,9 @@
     }
 
     function toggleActionButtons(disabled) {
-        document.getElementById('genBashBtn').disabled = disabled;
-        document.getElementById('genPsBtn').disabled = disabled;
-        document.getElementById('genBatBtn').disabled = disabled;
+        document.getElementById("genBashBtn").disabled = disabled;
+        document.getElementById("genPsBtn").disabled = disabled;
+        document.getElementById("genBatBtn").disabled = disabled;
     }
 
     function updateUFlag(index, val) {
@@ -556,55 +595,55 @@
     }
 
     function getFormattedTimestamp() {
-        const now = new Date();
-        const yyyy = now.getFullYear();
-        const mm = String(now.getMonth() + 1).padStart(2, '0');
-        const dd = String(now.getDate()).padStart(2, '0');
-        const hh = String(now.getHours()).padStart(2, '0');
-        const min = String(now.getMinutes()).padStart(2, '0');
-        const ss = String(now.getSeconds()).padStart(2, '0');
-        return yyyy + mm + dd + '_' + hh + min + ss;
+        var now = new Date();
+        var yyyy = now.getFullYear();
+        var mm = String(now.getMonth() + 1).padStart(2, "0");
+        var dd = String(now.getDate()).padStart(2, "0");
+        var hh = String(now.getHours()).padStart(2, "0");
+        var min = String(now.getMinutes()).padStart(2, "0");
+        var ss = String(now.getSeconds()).padStart(2, "0");
+        return yyyy + mm + dd + "_" + hh + min + ss;
     }
 
-    document.getElementById('resetAllBtn').addEventListener('click', function() {
+    function handleResetAll() {
         if (confirm("Are you sure you want to reset everything and start over?")) {
-            document.getElementById('fileInput').value = '';
-            document.getElementById('pasteInput').value = '';
-            document.getElementById('targetSid').value = 'PRD';
-            document.getElementById('domainSid').value = 'DEV';
-            document.getElementById('targetClient').value = '100';
-            document.getElementById('transDir').value = '/usr/sap/trans';
-            document.getElementById('defaultUFlag').value = 'u12';
+            document.getElementById("fileInput").value = "";
+            document.getElementById("pasteInput").value = "";
+            document.getElementById("targetSid").value = "PRD";
+            document.getElementById("domainSid").value = "DEV";
+            document.getElementById("targetClient").value = "100";
+            document.getElementById("transDir").value = "/usr/sap/trans";
+            document.getElementById("defaultUFlag").value = "u12";
             document.querySelector('input[name="bufferCleanStrategy"][value="clean"]').checked = true;
             document.querySelector('input[name="errorHandling"][value="prompt"]').checked = true;
-            document.getElementById('alertBox').style.display = 'none';
+            hideAlert();
             transportQueue = [];
             renderTable();
         }
-    });
+    }
 
     function downloadFile(content, filename, mime) {
-        const blob = new Blob([content], { type: mime });
-        const a = document.createElement('a');
+        var blob = new Blob([content], { type: mime });
+        var a = document.createElement("a");
         a.href = window.URL.createObjectURL(blob);
         a.download = filename;
         a.click();
     }
 
-    // GENERATE LINUX/UNIX BASH SCRIPTS
-    document.getElementById('genBashBtn').addEventListener('click', function() {
-        const sid = document.getElementById('targetSid').value.trim().toUpperCase();
-        const domSid = document.getElementById('domainSid').value.trim().toUpperCase() || sid;
-        const transDir = document.getElementById('transDir').value.trim();
-        const client = document.getElementById('targetClient').value.trim();
-        const profile = transDir + '/bin/TP_DOMAIN_' + domSid + '.PFL';
-        const bufferPath = transDir + '/buffer/' + sid;
-        const shouldCleanBuffer = document.querySelector('input[name="bufferCleanStrategy"]:checked').value === 'clean';
-        const stopOnError = document.querySelector('input[name="errorHandling"]:checked').value === 'prompt';
-        const ts = getFormattedTimestamp();
+    // GENERATE LINUX/UNIX BASH SCRIPTS (.sh)
+    function handleGenerateBash() {
+        var sid = document.getElementById("targetSid").value.trim().toUpperCase();
+        var domSid = document.getElementById("domainSid").value.trim().toUpperCase() || sid;
+        var transDir = normalizeUnixPath(document.getElementById("transDir").value);
+        var client = document.getElementById("targetClient").value.trim();
+        var profile = transDir + "/bin/TP_DOMAIN_" + domSid + ".PFL";
+        var bufferPath = transDir + "/buffer/" + sid;
+        var shouldCleanBuffer = document.querySelector('input[name="bufferCleanStrategy"]:checked').value === "clean";
+        var stopOnError = document.querySelector('input[name="errorHandling"]:checked').value === "prompt";
+        var ts = getFormattedTimestamp();
 
         // 1. Buffer Setup Script (.sh)
-        let bufSh = '#!/usr/bin/env bash\n# STEP 1: SAP Buffer Setup Script\n# Built by Pankaj Kapote\n\n';
+        var bufSh = '#!/usr/bin/env bash\n# STEP 1: SAP Buffer Setup Script\n# Built by Pankaj Kapote\n\n';
         bufSh += 'TARGET_SID="' + sid + '"\nDOMAIN_SID="' + domSid + '"\nTARGET_CLIENT="' + client + '"\nPROFILE="' + profile + '"\nBUFFER_PATH="' + bufferPath + '"\n';
         bufSh += 'RUN_TS=$(date +%Y%m%d_%H%M%S)\nLOG_FILE="sap_buffer_add_log_${RUN_TS}.log"\n\n';
         
@@ -630,7 +669,7 @@
         bufSh += 'echo "3. Adding selected transports into buffer (with re-import flag u0)..." | tee -a "$LOG_FILE"\n';
         bufSh += 'ADDED_COUNT=0\nFAILED_TRS=""\n\n';
 
-        transportQueue.forEach(item => {
+        transportQueue.forEach(function(item) {
             bufSh += 'echo "Adding ' + item.tr + ' (Client: $TARGET_CLIENT) to buffer..." | tee -a "$LOG_FILE"\n';
             bufSh += 'tp addtobuffer ' + item.tr + ' $TARGET_SID client=$TARGET_CLIENT u0 pf=$PROFILE > /dev/null 2>&1\n';
             bufSh += 'if [ $? -eq 0 ]; then\n';
@@ -648,7 +687,7 @@
             bufSh += 'if [ -n "$FAILED_TRS" ]; then\n';
             bufSh += '  echo "Failed to add the following transport(s): $FAILED_TRS" | tee -a "$LOG_FILE"\n';
             bufSh += 'else\n';
-            bufSh += '  echo "All transports successfully queued in buffer." | tee -a "$LOG_FILE"\n';
+            bufSh += '  echo "All transports successfully processed into buffer." | tee -a "$LOG_FILE"\n';
             bufSh += 'fi\n';
         } else {
             bufSh += 'if [ -n "$FAILED_TRS" ]; then\n';
@@ -658,79 +697,29 @@
             bufSh += 'fi\n';
         }
         bufSh += 'echo "Log recorded to: $LOG_FILE"\n';
-        downloadFile(bufSh, sid + '_1_buffer_setup_' + ts + '.sh', 'text/x-sh');
-
-        // 2. Import Execution Script (.sh)
-        let impSh = '#!/usr/bin/env bash\n# STEP 2: SAP Transport Import Script\n# Built by Pankaj Kapote\n\n';
-        impSh += 'TARGET_SID="' + sid + '"\nDOMAIN_SID="' + domSid + '"\nTARGET_CLIENT="' + client + '"\nPROFILE="' + profile + '"\n';
-        impSh += 'RUN_TS=$(date +%Y%m%d_%H%M%S)\nLOG_FILE="sap_import_log_${RUN_TS}.csv"\n\n';
-        impSh += 'START_TIME=$(date +%s)\n';
-        impSh += 'CNT_TOTAL=0; CNT_RC0=0; CNT_RC4=0; CNT_RC8=0; CNT_RC12=0; CNT_OTHER=0\n';
-        impSh += 'FAILED_RC8_LIST=""\nFAILED_RC12_LIST=""\n\n';
-        impSh += 'echo "Date,Time,Transport_Number,Target_SID,Target_Client,U_Flag,Return_Code" > "$LOG_FILE"\n\n';
-        
-        transportQueue.forEach(item => {
-            impSh += 'echo "Importing ' + item.tr + '..."\n';
-            impSh += 'tp import ' + item.tr + ' $TARGET_SID client=$TARGET_CLIENT ' + item.uflag + ' pf=$PROFILE > /dev/null 2>&1\n';
-            impSh += 'RC=$?\n';
-            impSh += 'echo "$(date +%Y-%m-%d),$(date +%H:%M:%S),' + item.tr + ',$TARGET_SID,$TARGET_CLIENT,' + item.uflag + ',$RC" >> "$LOG_FILE"\n';
-            impSh += '((CNT_TOTAL++))\n';
-            impSh += 'case $RC in\n';
-            impSh += '  0) ((CNT_RC0++));;\n';
-            impSh += '  4) ((CNT_RC4++));;\n';
-            impSh += '  8) ((CNT_RC8++)); FAILED_RC8_LIST="$FAILED_RC8_LIST ' + item.tr + '";;\n';
-            impSh += '  12) ((CNT_RC12++)); FAILED_RC12_LIST="$FAILED_RC12_LIST ' + item.tr + '";;\n';
-            impSh += '  *) ((CNT_OTHER++));;\n';
-            impSh += 'esac\n';
-            
-            if (stopOnError) {
-                impSh += 'if [ $RC -eq 8 ] || [ $RC -eq 12 ]; then\n';
-                impSh += '  read -p "Warning: RC $RC on ' + item.tr + '. Are you sure you want to continue? (Y/N): " CONF1\n';
-                impSh += '  if [[ "$CONF1" =~ ^[Yy]$ ]]; then\n';
-                impSh += '    read -p "DOUBLE CONFIRMATION: Type YES to continue importing: " CONF2\n';
-                impSh += '    if [ "$CONF2" != "YES" ]; then exit 1; fi\n';
-                impSh += '  else exit 1; fi\n';
-                impSh += 'fi\n';
-            }
-            impSh += '\n';
-        });
-
-        impSh += 'END_TIME=$(date +%s)\n';
-        impSh += 'ELAPSED_MIN=$(( (END_TIME - START_TIME) / 60 ))\n';
-        impSh += 'echo "" >> "$LOG_FILE"\n';
-        impSh += 'echo "=== SUMMARY BLOCK ===" >> "$LOG_FILE"\n';
-        impSh += 'echo "Total Processed,$CNT_TOTAL" >> "$LOG_FILE"\n';
-        impSh += 'echo "Elapsed Time (Minutes),$ELAPSED_MIN" >> "$LOG_FILE"\n';
-        impSh += 'echo "RC 0 Count,$CNT_RC0" >> "$LOG_FILE"\n';
-        impSh += 'echo "RC 4 Count,$CNT_RC4" >> "$LOG_FILE"\n';
-        impSh += 'echo "RC 8 Count,$CNT_RC8" >> "$LOG_FILE"\n';
-        impSh += 'echo "RC 12 Count,$CNT_RC12" >> "$LOG_FILE"\n';
-        impSh += 'if [ -n "$FAILED_RC8_LIST" ]; then echo "Transports with RC 8,$FAILED_RC8_LIST" >> "$LOG_FILE"; fi\n';
-        impSh += 'if [ -n "$FAILED_RC12_LIST" ]; then echo "Transports with RC 12,$FAILED_RC12_LIST" >> "$LOG_FILE"; fi\n';
-        impSh += 'echo "Transport import sequence completed. Log written to $LOG_FILE"\n';
-        downloadFile(impSh, sid + '_2_import_transports_' + ts + '.sh', 'text/x-sh');
-    });
+        downloadFile(bufSh, sid + "_1_buffer_setup_" + ts + ".sh", "text/x-sh");
+    }
 
     // GENERATE POWERSHELL SCRIPTS (.ps1)
-    document.getElementById('genPsBtn').addEventListener('click', function() {
-        const sid = document.getElementById('targetSid').value.trim().toUpperCase();
-        const domSid = document.getElementById('domainSid').value.trim().toUpperCase() || sid;
-        const transDir = document.getElementById('transDir').value.trim();
-        const client = document.getElementById('targetClient').value.trim();
-        const profile = transDir + '\\bin\\TP_DOMAIN_' + domSid + '.PFL';
-        const bufferPath = transDir + '\\buffer\\' + sid;
-        const shouldCleanBuffer = document.querySelector('input[name="bufferCleanStrategy"]:checked').value === 'clean';
-        const stopOnError = document.querySelector('input[name="errorHandling"]:checked').value === 'prompt';
-        const ts = getFormattedTimestamp();
+    function handleGeneratePs() {
+        var sid = document.getElementById("targetSid").value.trim().toUpperCase();
+        var domSid = document.getElementById("domainSid").value.trim().toUpperCase() || sid;
+        var transDir = normalizeWindowsPath(document.getElementById("transDir").value);
+        var client = document.getElementById("targetClient").value.trim();
+        var profile = transDir + "\\bin\\TP_DOMAIN_" + domSid + ".PFL";
+        var bufferPath = transDir + "\\buffer\\" + sid;
+        var shouldCleanBuffer = document.querySelector('input[name="bufferCleanStrategy"]:checked').value === "clean";
+        var stopOnError = document.querySelector('input[name="errorHandling"]:checked').value === "prompt";
+        var ts = getFormattedTimestamp();
 
         // 1. Buffer Setup Script (.ps1)
-        let bufPs = '# STEP 1: SAP Buffer Setup Script (PowerShell)\n# Built by Pankaj Kapote\n\n';
+        var bufPs = '# STEP 1: SAP Buffer Setup Script (PowerShell)\n# Built by Pankaj Kapote\n\n';
         bufPs += '$TargetSID = "' + sid + '"\n$DomainSID = "' + domSid + '"\n$TargetClient = "' + client + '"\n$Profile = "' + profile + '"\n$BufferPath = "' + bufferPath + '"\n';
-        bufPs += '$RunTS = Get-Date -Format \'yyyyMMdd_HHmmss\'\n$LogFile = "sap_buffer_add_log_$RunTS.log"\n\n';
+        bufPs += '$RunTS = Get-Date -Format "yyyyMMdd_HHmmss"\n$LogFile = "sap_buffer_add_log_$RunTS.log"\n\n';
         
         bufPs += '"1. Backing up buffer file with timestamp..." | Out-File $LogFile -Append\n';
         bufPs += 'if (Test-Path $BufferPath) {\n';
-        bufPs += '  $BackupTS = Get-Date -Format \'yyyyMMdd_HHmmss\'\n';
+        bufPs += '  $BackupTS = Get-Date -Format "yyyyMMdd_HHmmss"\n';
         bufPs += '  $BackupPath = "${BufferPath}_backup_$BackupTS"\n';
         bufPs += '  Copy-Item $BufferPath $BackupPath\n';
         bufPs += '  if (-not $?) { Write-Host "Error backing up buffer file! Aborting." -ForegroundColor Red; exit }\n';
@@ -750,7 +739,7 @@
         bufPs += '"3. Adding selected transports into buffer (u0)..." | Out-File $LogFile -Append\n';
         bufPs += '$AddedCount = 0\n$FailedTRs = @()\n\n';
 
-        transportQueue.forEach(item => {
+        transportQueue.forEach(function(item) {
             bufPs += 'Write-Host "Adding ' + item.tr + ' (Client: $TargetClient) to buffer..."\n';
             bufPs += '& tp addtobuffer ' + item.tr + ' $TargetSID "client=$TargetClient" u0 "pf=$Profile" *>$null\n';
             bufPs += 'if ($LASTEXITCODE -eq 0) { $AddedCount++ } else { $FailedTRs += "' + item.tr + '" }\n';
@@ -761,18 +750,18 @@
         bufPs += '"Successfully added transports: $AddedCount" | Out-File $LogFile -Append\n';
         bufPs += 'if ($FailedTRs.Count -gt 0) { "Failed transports: $($FailedTRs -join \', \')" | Out-File $LogFile -Append } else { "All transports successfully queued in buffer." | Out-File $LogFile -Append }\n';
         bufPs += 'Write-Host "Log recorded to: $LogFile" -ForegroundColor Green\n';
-        downloadFile(bufPs, sid + '_1_buffer_setup_' + ts + '.ps1', 'text/plain');
+        downloadFile(bufPs, sid + "_1_buffer_setup_" + ts + ".ps1", "text/plain");
 
         // 2. Import Execution Script (.ps1)
-        let impPs = '# STEP 2: SAP Transport Import Script (PowerShell)\n# Built by Pankaj Kapote\n\n';
+        var impPs = '# STEP 2: SAP Transport Import Script (PowerShell)\n# Built by Pankaj Kapote\n\n';
         impPs += '$TargetSID = "' + sid + '"\n$DomainSID = "' + domSid + '"\n$TargetClient = "' + client + '"\n$Profile = "' + profile + '"\n';
-        impPs += '$RunTS = Get-Date -Format \'yyyyMMdd_HHmmss\'\n$LogFile = "sap_import_log_$RunTS.csv"\n';
+        impPs += '$RunTS = Get-Date -Format "yyyyMMdd_HHmmss"\n$LogFile = "sap_import_log_$RunTS.csv"\n';
         impPs += '$StartTime = Get-Date\n';
         impPs += '$CntTotal=0; $CntRC0=0; $CntRC4=0; $CntRC8=0; $CntRC12=0; $CntOther=0\n';
         impPs += '$FailedRC8 = @()\n$FailedRC12 = @()\n\n';
         impPs += '"Date,Time,Transport_Number,Target_SID,Target_Client,U_Flag,Return_Code" | Out-File $LogFile\n\n';
         
-        transportQueue.forEach(item => {
+        transportQueue.forEach(function(item) {
             impPs += 'Write-Host "Importing ' + item.tr + '..." -ForegroundColor Yellow\n';
             impPs += '& tp import ' + item.tr + ' $TargetSID "client=$TargetClient" ' + item.uflag + ' "pf=$Profile" *>$null\n';
             impPs += '$RC = $LASTEXITCODE\n';
@@ -811,27 +800,27 @@
         impPs += 'if ($FailedRC8.Count -gt 0) { "Transports with RC 8,$($FailedRC8 -join \' \')" | Out-File $LogFile -Append }\n';
         impPs += 'if ($FailedRC12.Count -gt 0) { "Transports with RC 12,$($FailedRC12 -join \' \')" | Out-File $LogFile -Append }\n';
         impPs += 'Write-Host "Transport import sequence completed. Log saved to $LogFile" -ForegroundColor Green\n';
-        downloadFile(impPs, sid + '_2_import_transports_' + ts + '.ps1', 'text/plain');
-    });
+        downloadFile(impPs, sid + "_2_import_transports_" + ts + ".ps1", "text/plain");
+    }
 
     // GENERATE WINDOWS BATCH SCRIPTS (.bat)
-    document.getElementById('genBatBtn').addEventListener('click', function() {
-        const sid = document.getElementById('targetSid').value.trim().toUpperCase();
-        const domSid = document.getElementById('domainSid').value.trim().toUpperCase() || sid;
-        const transDir = document.getElementById('transDir').value.trim();
-        const client = document.getElementById('targetClient').value.trim();
-        const profile = transDir + '\\bin\\TP_DOMAIN_' + domSid + '.PFL';
-        const bufferPath = transDir + '\\buffer\\' + sid;
-        const shouldCleanBuffer = document.querySelector('input[name="bufferCleanStrategy"]:checked').value === 'clean';
-        const stopOnError = document.querySelector('input[name="errorHandling"]:checked').value === 'prompt';
-        const ts = getFormattedTimestamp();
+    function handleGenerateBat() {
+        var sid = document.getElementById("targetSid").value.trim().toUpperCase();
+        var domSid = document.getElementById("domainSid").value.trim().toUpperCase() || sid;
+        var transDir = normalizeWindowsPath(document.getElementById("transDir").value);
+        var client = document.getElementById("targetClient").value.trim();
+        var profile = transDir + "\\bin\\TP_DOMAIN_" + domSid + ".PFL";
+        var bufferPath = transDir + "\\buffer\\" + sid;
+        var shouldCleanBuffer = document.querySelector('input[name="bufferCleanStrategy"]:checked').value === "clean";
+        var stopOnError = document.querySelector('input[name="errorHandling"]:checked').value === "prompt";
+        var ts = getFormattedTimestamp();
 
         // 1. Buffer Setup Script (.bat)
-        let bufBat = '@echo off\nREM STEP 1: SAP Buffer Setup Script (Windows Batch)\nREM Built by Pankaj Kapote\n\n';
+        var bufBat = '@echo off\nREM STEP 1: SAP Buffer Setup Script (Windows Batch)\nREM Built by Pankaj Kapote\n\n';
         bufBat += 'set TARGET_SID=' + sid + '\nset DOMAIN_SID=' + domSid + '\nset TARGET_CLIENT=' + client + '\nset PROFILE=' + profile + '\nset BUFFER_PATH=' + bufferPath + '\n\n';
         
         bufBat += 'REM Generate locale-independent timestamp YYYYMMDD_HHMMSS using native CMD tools\n';
-        bufBat += 'for /f "tokens=1-6 delims=/: " %%a in (\'robocopy "%temp%" "%temp%" /l /nocopy /is /njh /njs /ndl /nc /ns /ts ^| findstr /r "^[ ]*[0-9]"\' ) do (\n';
+        bufBat += 'for /f "tokens=1-6 delims=/: " %%a in (\'robocopy "%temp%" "%temp%" /l /nocopy /is /njh /njs /ndl /nc /ns /ts ^| findstr /r "^[ ]*[0-9]"^\') do (\n';
         bufBat += '    set "RUN_TS=%%a%%b%%c_%%d%%e%%f"\n';
         bufBat += ')\n\n';
         bufBat += 'set LOG_FILE=sap_buffer_add_log_%RUN_TS%.log\n\n';
@@ -859,7 +848,7 @@
         bufBat += 'echo 3. Adding selected transports into buffer (u0)...\n';
         bufBat += 'set ADDED_COUNT=0\nset FAILED_LIST=\n\n';
 
-        transportQueue.forEach(item => {
+        transportQueue.forEach(function(item) {
             bufBat += 'echo Adding ' + item.tr + ' to buffer...\n';
             bufBat += 'tp addtobuffer ' + item.tr + ' %TARGET_SID% client=%TARGET_CLIENT% u0 pf=%PROFILE% >nul 2>&1\n';
             bufBat += 'if %ERRORLEVEL% EQU 0 (\n';
@@ -872,14 +861,14 @@
 
         bufBat += '\necho.\necho === BUFFER SETUP SUMMARY === >> %LOG_FILE%\necho Successfully added: %ADDED_COUNT% >> %LOG_FILE%\necho Failed TRs: %FAILED_LIST% >> %LOG_FILE%\n';
         bufBat += 'echo Buffer setup completed. Log recorded in %LOG_FILE%\ngoto :END\n:ABORT\necho Buffer setup failed!\n:END\n';
-        downloadFile(bufBat, sid + '_1_buffer_setup_' + ts + '.bat', 'text/plain');
+        downloadFile(bufBat, sid + "_1_buffer_setup_" + ts + ".bat", "text/plain");
 
         // 2. Import Execution Script (.bat)
-        let impBat = '@echo off\nREM STEP 2: SAP Transport Import Script (Windows Batch)\nREM Built by Pankaj Kapote\n\n';
+        var impBat = '@echo off\nREM STEP 2: SAP Transport Import Script (Windows Batch)\nREM Built by Pankaj Kapote\n\n';
         impBat += 'set TARGET_SID=' + sid + '\nset DOMAIN_SID=' + domSid + '\nset TARGET_CLIENT=' + client + '\nset PROFILE=' + profile + '\n\n';
         
         impBat += 'REM Generate runtime timestamp YYYYMMDD_HHMMSS\n';
-        impBat += 'for /f "tokens=1-6 delims=/: " %%a in (\'robocopy "%temp%" "%temp%" /l /nocopy /is /njh /njs /ndl /nc /ns /ts ^| findstr /r "^[ ]*[0-9]"\' ) do (\n';
+        impBat += 'for /f "tokens=1-6 delims=/: " %%a in (\'robocopy "%temp%" "%temp%" /l /nocopy /is /njh /njs /ndl /nc /ns /ts ^| findstr /r "^[ ]*[0-9]"^\') do (\n';
         impBat += '    set "RUN_TS=%%a%%b%%c_%%d%%e%%f"\n';
         impBat += ')\n';
         impBat += 'set LOG_FILE=sap_import_log_%RUN_TS%.csv\n\n';
@@ -887,7 +876,7 @@
         impBat += 'set CNT_RC8=0\nset CNT_RC12=0\nset RC8_LIST=\nset RC12_LIST=\n\n';
         impBat += 'echo Date,Time,Transport_Number,Target_SID,Target_Client,U_Flag,Return_Code > %LOG_FILE%\n\n';
         
-        transportQueue.forEach(item => {
+        transportQueue.forEach(function(item) {
             impBat += 'echo Importing ' + item.tr + '...\n';
             impBat += 'tp import ' + item.tr + ' %TARGET_SID% client=%TARGET_CLIENT% ' + item.uflag + ' pf=%PROFILE% >nul 2>&1\n';
             impBat += 'set RC=%ERRORLEVEL%\n';
@@ -909,8 +898,8 @@
         impBat += 'if defined RC8_LIST echo Transports with RC 8: %RC8_LIST% >> %LOG_FILE%\n';
         impBat += 'if defined RC12_LIST echo Transports with RC 12: %RC12_LIST% >> %LOG_FILE%\n';
         impBat += 'echo Import process completed. Summary logged to %LOG_FILE%\ngoto :END\n:ABORT\necho Import sequence aborted.\n:END\n';
-        downloadFile(impBat, sid + '_2_import_transports_' + ts + '.bat', 'text/plain');
-    });
+        downloadFile(impBat, sid + "_2_import_transports_" + ts + ".bat", "text/plain");
+    }
 </script>
 </body>
 </html>
