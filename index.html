@@ -132,12 +132,13 @@
             background-color: var(--sap-blue);
             color: white;
             border: none;
-            padding: 9px 15px;
+            padding: 8px 12px;
             border-radius: 4px;
             cursor: pointer;
             font-weight: 600;
-            font-size: 13px;
+            font-size: 12.5px;
             transition: background-color 0.2s;
+            white-space: nowrap;
         }
 
         .btn:hover { background-color: #0854a0; }
@@ -147,7 +148,7 @@
         .btn-ps:hover { background-color: #005a9e; }
         .btn-reset { background-color: #616161; }
         .btn-reset:hover { background-color: #424242; }
-        .btn:disabled { background-color: #ccc; cursor: not-allowed; }
+        .btn:disabled { background-color: #ccc; cursor: not-allowed; opacity: 0.6; }
 
         .btn-action-group { display: flex; gap: 6px; }
 
@@ -190,21 +191,33 @@
         .script-export-box {
             display: flex;
             flex-direction: column;
-            gap: 10px;
+            gap: 12px;
             margin-top: 10px;
         }
 
         .script-row {
             display: flex;
-            justify-content: space-between;
-            align-items: center;
+            flex-direction: column;
+            gap: 8px;
             background: #fff;
-            padding: 8px 12px;
+            padding: 10px 12px;
             border: 1px solid var(--sap-border);
-            border-radius: 4px;
+            border-radius: 5px;
         }
 
-        .script-label { font-weight: 600; font-size: 13px; color: var(--sap-dark); }
+        .script-row-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .script-label { font-weight: 700; font-size: 13px; color: var(--sap-dark); }
+
+        .script-btn-cluster {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
 
         .alert-box {
             padding: 12px 16px;
@@ -261,12 +274,13 @@
     <div class="tool-info">
         <h4>Buffer & Import Automation Strategy</h4>
         <ul>
-            <li><strong>Automatic OS Path Normalization:</strong> Windows scripts automatically convert directory separators to backslashes (<code>\</code>), and Unix/Linux scripts use forward slashes (<code>/</code>), preventing mixed-path syntax errors[cite: 7, 8].</li>
-            <li><strong>Timestamped Buffer Copies & Robocopy Timestamps:</strong> Windows Batch uses native <code>robocopy</code> date parsing to generate locale-independent <code>YYYYMMDD_HHMMSS</code> timestamps without relying on WMIC[cite: 8].</li>
-            <li><strong>Decoupled Domain SID vs. Target SID:</strong> Specify the <strong>Transport Domain SID</strong> independently from the <strong>Target System SID</strong> so the profile path (<code>TP_DOMAIN_&lt;DOM_SID&gt;.PFL</code>) resolves properly under centralized domain configurations[cite: 8].</li>
-            <li><strong>Sequence Preservation & Re-import:</strong> Input sequence is maintained, duplicate entries are flagged (<code>x1</code>, <code>x2</code>...), and <code>tp addtobuffer</code> includes <code>u0</code> so repeat transports enter the buffer reliably[cite: 8].</li>
-            <li><strong>Configurable Buffer Cleanup:</strong> Choose whether to clean the target buffer before adding or simply append transports to the existing system buffer[cite: 8].</li>
-            <li><strong>Concise Import Summaries:</strong> Logs capture return codes and list <strong>only RC 8 and RC 12 failures</strong>[cite: 8].</li>
+            <li><strong>Reliable File Output:</strong> Scripts are dynamically built and exported with zero dependency on experimental template tags, guaranteeing complete code generation every time.</li>
+            <li><strong>Automatic OS Path Normalization:</strong> Windows scripts automatically convert directory separators to backslashes (<code>\</code>), and Unix/Linux scripts use forward slashes (<code>/</code>), preventing mixed-path syntax errors[cite: 7].</li>
+            <li><strong>Timestamped Buffer Copies & Robocopy Timestamps:</strong> Windows Batch uses native <code>robocopy</code> date parsing to generate locale-independent <code>YYYYMMDD_HHMMSS</code> timestamps without relying on WMIC.</li>
+            <li><strong>Decoupled Domain SID vs. Target SID:</strong> Specify the <strong>Transport Domain SID</strong> independently from the <strong>Target System SID</strong> so the profile path (<code>TP_DOMAIN_&lt;DOM_SID&gt;.PFL</code>) resolves properly under centralized domain configurations.</li>
+            <li><strong>Sequence Preservation & Re-import:</strong> Input sequence is maintained, duplicate entries are flagged (<code>x1</code>, <code>x2</code>...), and <code>tp addtobuffer</code> includes <code>u0</code> so repeat transports enter the buffer reliably.</li>
+            <li><strong>Configurable Buffer Cleanup:</strong> Choose whether to clean the target buffer before adding or simply append transports to the existing system buffer.</li>
+            <li><strong>Concise Import Summaries:</strong> Logs capture return codes and list <strong>only RC 8 and RC 12 failures</strong>.</li>
         </ul>
     </div>
 
@@ -342,17 +356,37 @@
             
             <label style="margin-top: 14px;">Download OS Scripts</label>
             <div class="script-export-box">
+                <!-- Linux Shell -->
                 <div class="script-row">
-                    <span class="script-label">Linux / Unix Shell</span>
-                    <button id="genBashBtn" class="btn" disabled onclick="handleGenerateBash()">Export (.sh)</button>
+                    <div class="script-row-header">
+                        <span class="script-label">Linux / Unix Shell</span>
+                    </div>
+                    <div class="script-btn-cluster">
+                        <button id="genBashBufBtn" class="btn" disabled onclick="downloadBashBuffer()">1. Buffer Setup (.sh)</button>
+                        <button id="genBashImpBtn" class="btn" disabled onclick="downloadBashImport()">2. Import Script (.sh)</button>
+                    </div>
                 </div>
+
+                <!-- Windows PowerShell -->
                 <div class="script-row">
-                    <span class="script-label">Windows PowerShell</span>
-                    <button id="genPsBtn" class="btn btn-ps" disabled onclick="handleGeneratePs()">Export (.ps1)</button>
+                    <div class="script-row-header">
+                        <span class="script-label">Windows PowerShell</span>
+                    </div>
+                    <div class="script-btn-cluster">
+                        <button id="genPsBufBtn" class="btn btn-ps" disabled onclick="downloadPsBuffer()">1. Buffer Setup (.ps1)</button>
+                        <button id="genPsImpBtn" class="btn btn-ps" disabled onclick="downloadPsImport()">2. Import Script (.ps1)</button>
+                    </div>
                 </div>
+
+                <!-- Windows Batch -->
                 <div class="script-row">
-                    <span class="script-label">Windows Batch</span>
-                    <button id="genBatBtn" class="btn btn-bat" disabled onclick="handleGenerateBat()">Export (.bat)</button>
+                    <div class="script-row-header">
+                        <span class="script-label">Windows Batch</span>
+                    </div>
+                    <div class="script-btn-cluster">
+                        <button id="genBatBufBtn" class="btn btn-bat" disabled onclick="downloadBatBuffer()">1. Buffer Setup (.bat)</button>
+                        <button id="genBatImpBtn" class="btn btn-bat" disabled onclick="downloadBatImport()">2. Import Script (.bat)</button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -585,9 +619,12 @@
     }
 
     function toggleActionButtons(disabled) {
-        document.getElementById("genBashBtn").disabled = disabled;
-        document.getElementById("genPsBtn").disabled = disabled;
-        document.getElementById("genBatBtn").disabled = disabled;
+        document.getElementById("genBashBufBtn").disabled = disabled;
+        document.getElementById("genBashImpBtn").disabled = disabled;
+        document.getElementById("genPsBufBtn").disabled = disabled;
+        document.getElementById("genPsImpBtn").disabled = disabled;
+        document.getElementById("genBatBufBtn").disabled = disabled;
+        document.getElementById("genBatImpBtn").disabled = disabled;
     }
 
     function updateUFlag(index, val) {
@@ -630,275 +667,494 @@
         a.click();
     }
 
-    // GENERATE LINUX/UNIX BASH SCRIPTS (.sh)
-    function handleGenerateBash() {
+    // ==========================================
+    // 1. LINUX / UNIX BASH SCRIPT GENERATION
+    // ==========================================
+    function downloadBashBuffer() {
         var sid = document.getElementById("targetSid").value.trim().toUpperCase();
         var domSid = document.getElementById("domainSid").value.trim().toUpperCase() || sid;
         var transDir = normalizeUnixPath(document.getElementById("transDir").value);
         var client = document.getElementById("targetClient").value.trim();
         var profile = transDir + "/bin/TP_DOMAIN_" + domSid + ".PFL";
         var bufferPath = transDir + "/buffer/" + sid;
-        var shouldCleanBuffer = document.querySelector('input[name="bufferCleanStrategy"]:checked').value === "clean";
+        var shouldClean = document.querySelector('input[name="bufferCleanStrategy"]:checked').value === "clean";
+        var ts = getFormattedTimestamp();
+
+        var lines = [
+            "#!/usr/bin/env bash",
+            "# STEP 1: SAP Buffer Setup Script",
+            "# Built by Pankaj Kapote",
+            "",
+            'TARGET_SID="' + sid + '"',
+            'DOMAIN_SID="' + domSid + '"',
+            'TARGET_CLIENT="' + client + '"',
+            'PROFILE="' + profile + '"',
+            'BUFFER_PATH="' + bufferPath + '"',
+            'RUN_TS=$(date +%Y%m%d_%H%M%S)',
+            'LOG_FILE="sap_buffer_add_log_${RUN_TS}.log"',
+            "",
+            'echo "1. Backing up existing buffer file with timestamp..." | tee -a "$LOG_FILE"',
+            'if [ -f "$BUFFER_PATH" ]; then',
+            "  BACKUP_TS=$(date +%Y%m%d_%H%M%S)",
+            '  cp "$BUFFER_PATH" "${BUFFER_PATH}_backup_${BACKUP_TS}"',
+            '  if [ $? -ne 0 ]; then echo "Error backing up buffer file! Aborting." | tee -a "$LOG_FILE"; exit 1; fi',
+            '  echo "Backup successfully created: ${BUFFER_PATH}_backup_${BACKUP_TS}" | tee -a "$LOG_FILE"',
+            "else",
+            '  echo "Buffer file $BUFFER_PATH not found, skipping backup." | tee -a "$LOG_FILE"',
+            "fi",
+            ""
+        ];
+
+        if (shouldClean) {
+            lines.push(
+                'echo "2. Clearing existing buffer entries..." | tee -a "$LOG_FILE"',
+                "tp delfrombuffer ALL $TARGET_SID pf=$PROFILE > /dev/null 2>&1",
+                '> "$BUFFER_PATH"',
+                'echo "Buffer cleared." | tee -a "$LOG_FILE"',
+                ""
+            );
+        } else {
+            lines.push(
+                'echo "2. Retaining existing buffer entries (No cleanbuffer requested)..." | tee -a "$LOG_FILE"',
+                ""
+            );
+        }
+
+        lines.push(
+            'echo "3. Adding selected transports into buffer (with re-import flag u0)..." | tee -a "$LOG_FILE"',
+            "ADDED_COUNT=0",
+            'FAILED_TRS=""',
+            ""
+        );
+
+        transportQueue.forEach(function(item) {
+            lines.push(
+                'echo "Adding ' + item.tr + ' (Client: $TARGET_CLIENT) to buffer..." | tee -a "$LOG_FILE"',
+                "tp addtobuffer " + item.tr + " $TARGET_SID client=$TARGET_CLIENT u0 pf=$PROFILE > /dev/null 2>&1",
+                "if [ $? -eq 0 ]; then",
+                "  ((ADDED_COUNT++))",
+                "else",
+                '  echo "ERROR: Failed to add ' + item.tr + ' to buffer!" | tee -a "$LOG_FILE"',
+                '  FAILED_TRS="$FAILED_TRS ' + item.tr + '"',
+                "fi"
+            );
+        });
+
+        lines.push(
+            "",
+            'echo "" | tee -a "$LOG_FILE"',
+            'echo "=== BUFFER SETUP SUMMARY ===" | tee -a "$LOG_FILE"',
+            'echo "Successfully added transports: $ADDED_COUNT" | tee -a "$LOG_FILE"',
+            'if [ -n "$FAILED_TRS" ]; then',
+            '  echo "Failed to add the following transport(s): $FAILED_TRS" | tee -a "$LOG_FILE"',
+            "else",
+            '  echo "All transports successfully processed into buffer." | tee -a "$LOG_FILE"',
+            "fi",
+            'echo "Log recorded to: $LOG_FILE"'
+        );
+
+        downloadFile(lines.join("\n"), sid + "_1_buffer_setup_" + ts + ".sh", "text/x-sh");
+    }
+
+    function downloadBashImport() {
+        var sid = document.getElementById("targetSid").value.trim().toUpperCase();
+        var domSid = document.getElementById("domainSid").value.trim().toUpperCase() || sid;
+        var transDir = normalizeUnixPath(document.getElementById("transDir").value);
+        var client = document.getElementById("targetClient").value.trim();
+        var profile = transDir + "/bin/TP_DOMAIN_" + domSid + ".PFL";
         var stopOnError = document.querySelector('input[name="errorHandling"]:checked').value === "prompt";
         var ts = getFormattedTimestamp();
 
-        // 1. Buffer Setup Script (.sh)
-        var bufSh = '#!/usr/bin/env bash\n# STEP 1: SAP Buffer Setup Script\n# Built by Pankaj Kapote\n\n';
-        bufSh += 'TARGET_SID="' + sid + '"\nDOMAIN_SID="' + domSid + '"\nTARGET_CLIENT="' + client + '"\nPROFILE="' + profile + '"\nBUFFER_PATH="' + bufferPath + '"\n';
-        bufSh += 'RUN_TS=$(date +%Y%m%d_%H%M%S)\nLOG_FILE="sap_buffer_add_log_${RUN_TS}.log"\n\n';
-        
-        bufSh += 'echo "1. Backing up existing buffer file with timestamp..." | tee -a "$LOG_FILE"\n';
-        bufSh += 'if [ -f "$BUFFER_PATH" ]; then\n';
-        bufSh += '  BACKUP_TS=$(date +%Y%m%d_%H%M%S)\n';
-        bufSh += '  cp "$BUFFER_PATH" "${BUFFER_PATH}_backup_${BACKUP_TS}"\n';
-        bufSh += '  if [ $? -ne 0 ]; then echo "Error backing up buffer file! Aborting." | tee -a "$LOG_FILE"; exit 1; fi\n';
-        bufSh += '  echo "Backup successfully created: ${BUFFER_PATH}_backup_${BACKUP_TS}" | tee -a "$LOG_FILE"\n';
-        bufSh += 'else\n';
-        bufSh += '  echo "Buffer file $BUFFER_PATH not found, skipping backup." | tee -a "$LOG_FILE"\n';
-        bufSh += 'fi\n\n';
-
-        if (shouldCleanBuffer) {
-            bufSh += 'echo "2. Clearing existing buffer entries..." | tee -a "$LOG_FILE"\n';
-            bufSh += 'tp delfrombuffer ALL $TARGET_SID pf=$PROFILE > /dev/null 2>&1\n';
-            bufSh += '> "$BUFFER_PATH"\n';
-            bufSh += 'echo "Buffer cleared." | tee -a "$LOG_FILE"\n\n';
-        } else {
-            bufSh += 'echo "2. Retaining existing buffer entries (No cleanbuffer requested)..." | tee -a "$LOG_FILE"\n\n';
-        }
-
-        bufSh += 'echo "3. Adding selected transports into buffer (with re-import flag u0)..." | tee -a "$LOG_FILE"\n';
-        bufSh += 'ADDED_COUNT=0\nFAILED_TRS=""\n\n';
+        var lines = [
+            "#!/usr/bin/env bash",
+            "# STEP 2: SAP Transport Import Script",
+            "# Built by Pankaj Kapote",
+            "",
+            'TARGET_SID="' + sid + '"',
+            'DOMAIN_SID="' + domSid + '"',
+            'TARGET_CLIENT="' + client + '"',
+            'PROFILE="' + profile + '"',
+            'RUN_TS=$(date +%Y%m%d_%H%M%S)',
+            'LOG_FILE="sap_import_log_${RUN_TS}.csv"',
+            "",
+            "START_TIME=$(date +%s)",
+            "CNT_TOTAL=0; CNT_RC0=0; CNT_RC4=0; CNT_RC8=0; CNT_RC12=0; CNT_OTHER=0",
+            'FAILED_RC8_LIST=""',
+            'FAILED_RC12_LIST=""',
+            "",
+            'echo "Date,Time,Transport_Number,Target_SID,Target_Client,U_Flag,Return_Code" > "$LOG_FILE"',
+            ""
+        ];
 
         transportQueue.forEach(function(item) {
-            bufSh += 'echo "Adding ' + item.tr + ' (Client: $TARGET_CLIENT) to buffer..." | tee -a "$LOG_FILE"\n';
-            bufSh += 'tp addtobuffer ' + item.tr + ' $TARGET_SID client=$TARGET_CLIENT u0 pf=$PROFILE > /dev/null 2>&1\n';
-            bufSh += 'if [ $? -eq 0 ]; then\n';
-            bufSh += '  ((ADDED_COUNT++))\n';
-            bufSh += 'else\n';
-            bufSh += '  echo "ERROR: Failed to add ' + item.tr + ' to buffer!" | tee -a "$LOG_FILE"\n';
-            bufSh += '  FAILED_TRS="$FAILED_TRS ' + item.tr + '"\n';
-            bufSh += 'fi\n';
+            lines.push(
+                'echo "Importing ' + item.tr + '..."',
+                "tp import " + item.tr + " $TARGET_SID client=$TARGET_CLIENT " + item.uflag + " pf=$PROFILE > /dev/null 2>&1",
+                "RC=$?",
+                'echo "$(date +%Y-%m-%d),$(date +%H:%M:%S),' + item.tr + ',$TARGET_SID,$TARGET_CLIENT,' + item.uflag + ',$RC" >> "$LOG_FILE"',
+                "((CNT_TOTAL++))",
+                "case $RC in",
+                "  0) ((CNT_RC0++));;",
+                "  4) ((CNT_RC4++));;",
+                '  8) ((CNT_RC8++)); FAILED_RC8_LIST="$FAILED_RC8_LIST ' + item.tr + '";;',
+                '  12) ((CNT_RC12++)); FAILED_RC12_LIST="$FAILED_RC12_LIST ' + item.tr + '";;',
+                "  *) ((CNT_OTHER++));;",
+                "esac"
+            );
+
+            if (stopOnError) {
+                lines.push(
+                    "if [ $RC -eq 8 ] || [ $RC -eq 12 ]; then",
+                    '  read -p "Warning: RC $RC on ' + item.tr + '. Are you sure you want to continue? (Y/N): " CONF1',
+                    '  if [[ "$CONF1" =~ ^[Yy]$ ]]; then',
+                    '    read -p "DOUBLE CONFIRMATION: Type YES to continue importing: " CONF2',
+                    '    if [ "$CONF2" != "YES" ]; then exit 1; fi',
+                    "  else exit 1; fi",
+                    "fi"
+                );
+            }
+            lines.push("");
         });
 
-        bufSh += '\necho "" | tee -a "$LOG_FILE"\n';
-        bufSh += 'echo "=== BUFFER SETUP SUMMARY ===" | tee -a "$LOG_FILE"\n';
-        bufSh += 'echo "Successfully added transports: $ADDED_COUNT" | tee -a "$LOG_FILE"\n';
-        if (shouldCleanBuffer) {
-            bufSh += 'if [ -n "$FAILED_TRS" ]; then\n';
-            bufSh += '  echo "Failed to add the following transport(s): $FAILED_TRS" | tee -a "$LOG_FILE"\n';
-            bufSh += 'else\n';
-            bufSh += '  echo "All transports successfully processed into buffer." | tee -a "$LOG_FILE"\n';
-            bufSh += 'fi\n';
-        } else {
-            bufSh += 'if [ -n "$FAILED_TRS" ]; then\n';
-            bufSh += '  echo "Failed to add the following transport(s): $FAILED_TRS" | tee -a "$LOG_FILE"\n';
-            bufSh += 'else\n';
-            bufSh += '  echo "All transports successfully appended to buffer." | tee -a "$LOG_FILE"\n';
-            bufSh += 'fi\n';
-        }
-        bufSh += 'echo "Log recorded to: $LOG_FILE"\n';
-        downloadFile(bufSh, sid + "_1_buffer_setup_" + ts + ".sh", "text/x-sh");
+        lines.push(
+            "END_TIME=$(date +%s)",
+            "ELAPSED_MIN=$(( (END_TIME - START_TIME) / 60 ))",
+            'echo "" >> "$LOG_FILE"',
+            'echo "=== SUMMARY BLOCK ===" >> "$LOG_FILE"',
+            'echo "Total Processed,$CNT_TOTAL" >> "$LOG_FILE"',
+            'echo "Elapsed Time (Minutes),$ELAPSED_MIN" >> "$LOG_FILE"',
+            'echo "RC 0 Count,$CNT_RC0" >> "$LOG_FILE"',
+            'echo "RC 4 Count,$CNT_RC4" >> "$LOG_FILE"',
+            'echo "RC 8 Count,$CNT_RC8" >> "$LOG_FILE"',
+            'echo "RC 12 Count,$CNT_RC12" >> "$LOG_FILE"',
+            'if [ -n "$FAILED_RC8_LIST" ]; then echo "Transports with RC 8,$FAILED_RC8_LIST" >> "$LOG_FILE"; fi',
+            'if [ -n "$FAILED_RC12_LIST" ]; then echo "Transports with RC 12,$FAILED_RC12_LIST" >> "$LOG_FILE"; fi',
+            'echo "Transport import sequence completed. Log written to $LOG_FILE"'
+        );
+
+        downloadFile(lines.join("\n"), sid + "_2_import_transports_" + ts + ".sh", "text/x-sh");
     }
 
-    // GENERATE POWERSHELL SCRIPTS (.ps1)
-    function handleGeneratePs() {
+    // ==========================================
+    // 2. WINDOWS POWERSHELL SCRIPT GENERATION
+    // ==========================================
+    function downloadPsBuffer() {
         var sid = document.getElementById("targetSid").value.trim().toUpperCase();
         var domSid = document.getElementById("domainSid").value.trim().toUpperCase() || sid;
         var transDir = normalizeWindowsPath(document.getElementById("transDir").value);
         var client = document.getElementById("targetClient").value.trim();
         var profile = transDir + "\\bin\\TP_DOMAIN_" + domSid + ".PFL";
         var bufferPath = transDir + "\\buffer\\" + sid;
-        var shouldCleanBuffer = document.querySelector('input[name="bufferCleanStrategy"]:checked').value === "clean";
+        var shouldClean = document.querySelector('input[name="bufferCleanStrategy"]:checked').value === "clean";
+        var ts = getFormattedTimestamp();
+
+        var lines = [
+            "# STEP 1: SAP Buffer Setup Script (PowerShell)",
+            "# Built by Pankaj Kapote",
+            "",
+            '$TargetSID = "' + sid + '"',
+            '$DomainSID = "' + domSid + '"',
+            '$TargetClient = "' + client + '"',
+            '$Profile = "' + profile + '"',
+            '$BufferPath = "' + bufferPath + '"',
+            '$RunTS = Get-Date -Format "yyyyMMdd_HHmmss"',
+            '$LogFile = "sap_buffer_add_log_$RunTS.log"',
+            "",
+            '"1. Backing up buffer file with timestamp..." | Out-File $LogFile -Append',
+            "if (Test-Path $BufferPath) {",
+            '  $BackupTS = Get-Date -Format "yyyyMMdd_HHmmss"',
+            '  $BackupPath = "${BufferPath}_backup_$BackupTS"',
+            "  Copy-Item $BufferPath $BackupPath",
+            '  if (-not $?) { Write-Host "Error backing up buffer file! Aborting." -ForegroundColor Red; exit }',
+            '  "Backup successfully created: $BackupPath" | Out-File $LogFile -Append',
+            "} else {",
+            '  "Buffer file $BufferPath not found, skipping backup." | Out-File $LogFile -Append',
+            "}",
+            ""
+        ];
+
+        if (shouldClean) {
+            lines.push(
+                '"2. Clearing existing buffer entries..." | Out-File $LogFile -Append',
+                '& tp delfrombuffer ALL $TargetSID "pf=$Profile" *>$null',
+                "Clear-Content $BufferPath -ErrorAction SilentlyContinue",
+                ""
+            );
+        } else {
+            lines.push(
+                '"2. Retaining existing buffer entries..." | Out-File $LogFile -Append',
+                ""
+            );
+        }
+
+        lines.push(
+            '"3. Adding selected transports into buffer (u0)..." | Out-File $LogFile -Append',
+            "$AddedCount = 0",
+            "$FailedTRs = @()",
+            ""
+        );
+
+        transportQueue.forEach(function(item) {
+            lines.push(
+                'Write-Host "Adding ' + item.tr + ' (Client: $TargetClient) to buffer..."',
+                '& tp addtobuffer ' + item.tr + ' $TargetSID "client=$TargetClient" u0 "pf=$Profile" *>$null',
+                'if ($LASTEXITCODE -eq 0) { $AddedCount++ } else { $FailedTRs += "' + item.tr + '" }'
+            );
+        });
+
+        lines.push(
+            "",
+            '"" | Out-File $LogFile -Append',
+            '"=== BUFFER SETUP SUMMARY ===" | Out-File $LogFile -Append',
+            '"Successfully added transports: $AddedCount" | Out-File $LogFile -Append',
+            'if ($FailedTRs.Count -gt 0) { "Failed transports: $($FailedTRs -join \', \')" | Out-File $LogFile -Append } else { "All transports successfully queued in buffer." | Out-File $LogFile -Append }',
+            'Write-Host "Log recorded to: $LogFile" -ForegroundColor Green'
+        );
+
+        downloadFile(lines.join("\r\n"), sid + "_1_buffer_setup_" + ts + ".ps1", "text/plain");
+    }
+
+    function downloadPsImport() {
+        var sid = document.getElementById("targetSid").value.trim().toUpperCase();
+        var domSid = document.getElementById("domainSid").value.trim().toUpperCase() || sid;
+        var transDir = normalizeWindowsPath(document.getElementById("transDir").value);
+        var client = document.getElementById("targetClient").value.trim();
+        var profile = transDir + "\\bin\\TP_DOMAIN_" + domSid + ".PFL";
         var stopOnError = document.querySelector('input[name="errorHandling"]:checked').value === "prompt";
         var ts = getFormattedTimestamp();
 
-        // 1. Buffer Setup Script (.ps1)
-        var bufPs = '# STEP 1: SAP Buffer Setup Script (PowerShell)\n# Built by Pankaj Kapote\n\n';
-        bufPs += '$TargetSID = "' + sid + '"\n$DomainSID = "' + domSid + '"\n$TargetClient = "' + client + '"\n$Profile = "' + profile + '"\n$BufferPath = "' + bufferPath + '"\n';
-        bufPs += '$RunTS = Get-Date -Format "yyyyMMdd_HHmmss"\n$LogFile = "sap_buffer_add_log_$RunTS.log"\n\n';
-        
-        bufPs += '"1. Backing up buffer file with timestamp..." | Out-File $LogFile -Append\n';
-        bufPs += 'if (Test-Path $BufferPath) {\n';
-        bufPs += '  $BackupTS = Get-Date -Format "yyyyMMdd_HHmmss"\n';
-        bufPs += '  $BackupPath = "${BufferPath}_backup_$BackupTS"\n';
-        bufPs += '  Copy-Item $BufferPath $BackupPath\n';
-        bufPs += '  if (-not $?) { Write-Host "Error backing up buffer file! Aborting." -ForegroundColor Red; exit }\n';
-        bufPs += '  "Backup successfully created: $BackupPath" | Out-File $LogFile -Append\n';
-        bufPs += '} else {\n';
-        bufPs += '  "Buffer file $BufferPath not found, skipping backup." | Out-File $LogFile -Append\n';
-        bufPs += '}\n\n';
-
-        if (shouldCleanBuffer) {
-            bufPs += '"2. Clearing existing buffer entries..." | Out-File $LogFile -Append\n';
-            bufPs += '& tp delfrombuffer ALL $TargetSID "pf=$Profile" *>$null\n';
-            bufPs += 'Clear-Content $BufferPath -ErrorAction SilentlyContinue\n\n';
-        } else {
-            bufPs += '"2. Retaining existing buffer entries..." | Out-File $LogFile -Append\n\n';
-        }
-
-        bufPs += '"3. Adding selected transports into buffer (u0)..." | Out-File $LogFile -Append\n';
-        bufPs += '$AddedCount = 0\n$FailedTRs = @()\n\n';
+        var lines = [
+            "# STEP 2: SAP Transport Import Script (PowerShell)",
+            "# Built by Pankaj Kapote",
+            "",
+            '$TargetSID = "' + sid + '"',
+            '$DomainSID = "' + domSid + '"',
+            '$TargetClient = "' + client + '"',
+            '$Profile = "' + profile + '"',
+            '$RunTS = Get-Date -Format "yyyyMMdd_HHmmss"',
+            '$LogFile = "sap_import_log_$RunTS.csv"',
+            "$StartTime = Get-Date",
+            "$CntTotal=0; $CntRC0=0; $CntRC4=0; $CntRC8=0; $CntRC12=0; $CntOther=0",
+            "$FailedRC8 = @()",
+            "$FailedRC12 = @()",
+            "",
+            '"Date,Time,Transport_Number,Target_SID,Target_Client,U_Flag,Return_Code" | Out-File $LogFile',
+            ""
+        ];
 
         transportQueue.forEach(function(item) {
-            bufPs += 'Write-Host "Adding ' + item.tr + ' (Client: $TargetClient) to buffer..."\n';
-            bufPs += '& tp addtobuffer ' + item.tr + ' $TargetSID "client=$TargetClient" u0 "pf=$Profile" *>$null\n';
-            bufPs += 'if ($LASTEXITCODE -eq 0) { $AddedCount++ } else { $FailedTRs += "' + item.tr + '" }\n';
-        });
-
-        bufPs += '\n"" | Out-File $LogFile -Append\n';
-        bufPs += '"=== BUFFER SETUP SUMMARY ===" | Out-File $LogFile -Append\n';
-        bufPs += '"Successfully added transports: $AddedCount" | Out-File $LogFile -Append\n';
-        bufPs += 'if ($FailedTRs.Count -gt 0) { "Failed transports: $($FailedTRs -join \', \')" | Out-File $LogFile -Append } else { "All transports successfully queued in buffer." | Out-File $LogFile -Append }\n';
-        bufPs += 'Write-Host "Log recorded to: $LogFile" -ForegroundColor Green\n';
-        downloadFile(bufPs, sid + "_1_buffer_setup_" + ts + ".ps1", "text/plain");
-
-        // 2. Import Execution Script (.ps1)
-        var impPs = '# STEP 2: SAP Transport Import Script (PowerShell)\n# Built by Pankaj Kapote\n\n';
-        impPs += '$TargetSID = "' + sid + '"\n$DomainSID = "' + domSid + '"\n$TargetClient = "' + client + '"\n$Profile = "' + profile + '"\n';
-        impPs += '$RunTS = Get-Date -Format "yyyyMMdd_HHmmss"\n$LogFile = "sap_import_log_$RunTS.csv"\n';
-        impPs += '$StartTime = Get-Date\n';
-        impPs += '$CntTotal=0; $CntRC0=0; $CntRC4=0; $CntRC8=0; $CntRC12=0; $CntOther=0\n';
-        impPs += '$FailedRC8 = @()\n$FailedRC12 = @()\n\n';
-        impPs += '"Date,Time,Transport_Number,Target_SID,Target_Client,U_Flag,Return_Code" | Out-File $LogFile\n\n';
-        
-        transportQueue.forEach(function(item) {
-            impPs += 'Write-Host "Importing ' + item.tr + '..." -ForegroundColor Yellow\n';
-            impPs += '& tp import ' + item.tr + ' $TargetSID "client=$TargetClient" ' + item.uflag + ' "pf=$Profile" *>$null\n';
-            impPs += '$RC = $LASTEXITCODE\n';
-            impPs += '"$(Get-Date -Format \'yyyy-MM-dd\'),$(Get-Date -Format \'HH:mm:ss\'),' + item.tr + ',$TargetSID,$TargetClient,' + item.uflag + ',$RC" | Out-File $LogFile -Append\n';
-            impPs += '$CntTotal++\n';
-            impPs += 'switch ($RC) {\n';
-            impPs += '  0 { $CntRC0++ }\n';
-            impPs += '  4 { $CntRC4++ }\n';
-            impPs += '  8 { $CntRC8++; $FailedRC8 += "' + item.tr + '" }\n';
-            impPs += '  12 { $CntRC12++; $FailedRC12 += "' + item.tr + '" }\n';
-            impPs += '  default { $CntOther++ }\n';
-            impPs += '}\n';
+            lines.push(
+                'Write-Host "Importing ' + item.tr + '..." -ForegroundColor Yellow',
+                '& tp import ' + item.tr + ' $TargetSID "client=$TargetClient" ' + item.uflag + ' "pf=$Profile" *>$null',
+                "$RC = $LASTEXITCODE",
+                '"$(Get-Date -Format \'yyyy-MM-dd\'),$(Get-Date -Format \'HH:mm:ss\'),' + item.tr + ',$TargetSID,$TargetClient,' + item.uflag + ',$RC" | Out-File $LogFile -Append',
+                "$CntTotal++",
+                "switch ($RC) {",
+                "  0 { $CntRC0++ }",
+                "  4 { $CntRC4++ }",
+                '  8 { $CntRC8++; $FailedRC8 += "' + item.tr + '" }',
+                '  12 { $CntRC12++; $FailedRC12 += "' + item.tr + '" }',
+                "  default { $CntOther++ }",
+                "}"
+            );
 
             if (stopOnError) {
-                impPs += 'if ($RC -eq 8 -or $RC -eq 12) {\n';
-                impPs += '  $ans1 = Read-Host "Warning: RC $RC on ' + item.tr + '. Do you want to continue? (Y/N)"\n';
-                impPs += '  if ($ans1 -eq "Y" -or $ans1 -eq "y") {\n';
-                impPs += '    $ans2 = Read-Host "DOUBLE CONFIRMATION: Type YES to proceed"\n';
-                impPs += '    if ($ans2 -ne "YES") { exit }\n';
-                impPs += '  } else { exit }\n';
-                impPs += '}\n';
+                lines.push(
+                    "if ($RC -eq 8 -or $RC -eq 12) {",
+                    '  $ans1 = Read-Host "Warning: RC $RC on ' + item.tr + '. Do you want to continue? (Y/N)"',
+                    '  if ($ans1 -eq "Y" -or $ans1 -eq "y") {',
+                    '    $ans2 = Read-Host "DOUBLE CONFIRMATION: Type YES to proceed"',
+                    '    if ($ans2 -ne "YES") { exit }',
+                    "  } else { exit }",
+                    "}"
+                );
             }
-            impPs += '\n';
+            lines.push("");
         });
 
-        impPs += '$EndTime = Get-Date\n';
-        impPs += '$ElapsedMin = [math]::Round(($EndTime - $StartTime).TotalMinutes, 2)\n';
-        impPs += '"" | Out-File $LogFile -Append\n';
-        impPs += '"=== SUMMARY BLOCK ===" | Out-File $LogFile -Append\n';
-        impPs += '"Total Processed,$CntTotal" | Out-File $LogFile -Append\n';
-        impPs += '"Elapsed Time (Minutes),$ElapsedMin" | Out-File $LogFile -Append\n';
-        impPs += '"RC 0 Count,$CntRC0" | Out-File $LogFile -Append\n';
-        impPs += '"RC 4 Count,$CntRC4" | Out-File $LogFile -Append\n';
-        impPs += '"RC 8 Count,$CntRC8" | Out-File $LogFile -Append\n';
-        impPs += '"RC 12 Count,$CntRC12" | Out-File $LogFile -Append\n';
-        impPs += 'if ($FailedRC8.Count -gt 0) { "Transports with RC 8,$($FailedRC8 -join \' \')" | Out-File $LogFile -Append }\n';
-        impPs += 'if ($FailedRC12.Count -gt 0) { "Transports with RC 12,$($FailedRC12 -join \' \')" | Out-File $LogFile -Append }\n';
-        impPs += 'Write-Host "Transport import sequence completed. Log saved to $LogFile" -ForegroundColor Green\n';
-        downloadFile(impPs, sid + "_2_import_transports_" + ts + ".ps1", "text/plain");
+        lines.push(
+            "$EndTime = Get-Date",
+            "$ElapsedMin = [math]::Round(($EndTime - $StartTime).TotalMinutes, 2)",
+            '"" | Out-File $LogFile -Append',
+            '"=== SUMMARY BLOCK ===" | Out-File $LogFile -Append',
+            '"Total Processed,$CntTotal" | Out-File $LogFile -Append',
+            '"Elapsed Time (Minutes),$ElapsedMin" | Out-File $LogFile -Append',
+            '"RC 0 Count,$CntRC0" | Out-File $LogFile -Append',
+            '"RC 4 Count,$CntRC4" | Out-File $LogFile -Append',
+            '"RC 8 Count,$CntRC8" | Out-File $LogFile -Append',
+            '"RC 12 Count,$CntRC12" | Out-File $LogFile -Append',
+            'if ($FailedRC8.Count -gt 0) { "Transports with RC 8,$($FailedRC8 -join \' \')" | Out-File $LogFile -Append }',
+            'if ($FailedRC12.Count -gt 0) { "Transports with RC 12,$($FailedRC12 -join \' \')" | Out-File $LogFile -Append }',
+            'Write-Host "Transport import sequence completed. Log saved to $LogFile" -ForegroundColor Green'
+        );
+
+        downloadFile(lines.join("\r\n"), sid + "_2_import_transports_" + ts + ".ps1", "text/plain");
     }
 
-    // GENERATE WINDOWS BATCH SCRIPTS (.bat)
-    function handleGenerateBat() {
+    // ==========================================
+    // 3. WINDOWS BATCH SCRIPT GENERATION
+    // ==========================================
+    function downloadBatBuffer() {
         var sid = document.getElementById("targetSid").value.trim().toUpperCase();
         var domSid = document.getElementById("domainSid").value.trim().toUpperCase() || sid;
         var transDir = normalizeWindowsPath(document.getElementById("transDir").value);
         var client = document.getElementById("targetClient").value.trim();
         var profile = transDir + "\\bin\\TP_DOMAIN_" + domSid + ".PFL";
         var bufferPath = transDir + "\\buffer\\" + sid;
-        var shouldCleanBuffer = document.querySelector('input[name="bufferCleanStrategy"]:checked').value === "clean";
+        var shouldClean = document.querySelector('input[name="bufferCleanStrategy"]:checked').value === "clean";
+        var ts = getFormattedTimestamp();
+
+        var lines = [
+            "@echo off",
+            "REM STEP 1: SAP Buffer Setup Script (Windows Batch)",
+            "REM Built by Pankaj Kapote",
+            "",
+            "set TARGET_SID=" + sid,
+            "set DOMAIN_SID=" + domSid,
+            "set TARGET_CLIENT=" + client,
+            "set PROFILE=" + profile,
+            "set BUFFER_PATH=" + bufferPath,
+            "",
+            "REM Generate locale-independent timestamp YYYYMMDD_HHMMSS using native CMD tools",
+            'for /f "tokens=1-6 delims=/: " %%a in (\'robocopy "%temp%" "%temp%" /l /nocopy /is /njh /njs /ndl /nc /ns /ts ^| findstr /r "^[ ]*[0-9]"^\') do (',
+            '    set "RUN_TS=%%a%%b%%c_%%d%%e%%f"',
+            ")",
+            "",
+            "set LOG_FILE=sap_buffer_add_log_%RUN_TS%.log",
+            "",
+            "echo 1. Backing up existing buffer file with timestamp...",
+            'if exist "%BUFFER_PATH%" (',
+            '    copy "%BUFFER_PATH%" "%BUFFER_PATH%_backup_%RUN_TS%.bak" >nul',
+            "    if errorlevel 1 (",
+            "        echo Error backing up buffer file!",
+            "        goto :ABORT",
+            "    )",
+            '    echo Backup created: %BUFFER_PATH%_backup_%RUN_TS%.bak >> %LOG_FILE%',
+            ") else (",
+            '    echo Buffer file "%BUFFER_PATH%" not found, skipping backup.',
+            ")",
+            ""
+        ];
+
+        if (shouldClean) {
+            lines.push(
+                "echo 2. Clearing existing buffer entries...",
+                "tp delfrombuffer ALL %TARGET_SID% pf=%PROFILE% >nul 2>&1",
+                'type nul > "%BUFFER_PATH%"',
+                ""
+            );
+        } else {
+            lines.push(
+                "echo 2. Retaining existing buffer entries...",
+                ""
+            );
+        }
+
+        lines.push(
+            "echo 3. Adding selected transports into buffer (u0)...",
+            "set ADDED_COUNT=0",
+            "set FAILED_LIST=",
+            ""
+        );
+
+        transportQueue.forEach(function(item) {
+            lines.push(
+                "echo Adding " + item.tr + " to buffer...",
+                "tp addtobuffer " + item.tr + " %TARGET_SID% client=%TARGET_CLIENT% u0 pf=%PROFILE% >nul 2>&1",
+                "if %ERRORLEVEL% EQU 0 (",
+                "    set /a ADDED_COUNT+=1",
+                ") else (",
+                "    echo ERROR: Failed to add " + item.tr,
+                "    set FAILED_LIST=%FAILED_LIST% " + item.tr,
+                ")"
+            );
+        });
+
+        lines.push(
+            "",
+            "echo.",
+            "echo === BUFFER SETUP SUMMARY === >> %LOG_FILE%",
+            "echo Successfully added: %ADDED_COUNT% >> %LOG_FILE%",
+            "echo Failed TRs: %FAILED_LIST% >> %LOG_FILE%",
+            "echo Buffer setup completed. Log recorded in %LOG_FILE%",
+            "goto :END",
+            ":ABORT",
+            "echo Buffer setup failed!",
+            ":END"
+        );
+
+        downloadFile(lines.join("\r\n"), sid + "_1_buffer_setup_" + ts + ".bat", "text/plain");
+    }
+
+    function downloadBatImport() {
+        var sid = document.getElementById("targetSid").value.trim().toUpperCase();
+        var domSid = document.getElementById("domainSid").value.trim().toUpperCase() || sid;
+        var transDir = normalizeWindowsPath(document.getElementById("transDir").value);
+        var client = document.getElementById("targetClient").value.trim();
+        var profile = transDir + "\\bin\\TP_DOMAIN_" + domSid + ".PFL";
         var stopOnError = document.querySelector('input[name="errorHandling"]:checked').value === "prompt";
         var ts = getFormattedTimestamp();
 
-        // 1. Buffer Setup Script (.bat)
-        var bufBat = '@echo off\nREM STEP 1: SAP Buffer Setup Script (Windows Batch)\nREM Built by Pankaj Kapote\n\n';
-        bufBat += 'set TARGET_SID=' + sid + '\nset DOMAIN_SID=' + domSid + '\nset TARGET_CLIENT=' + client + '\nset PROFILE=' + profile + '\nset BUFFER_PATH=' + bufferPath + '\n\n';
-        
-        bufBat += 'REM Generate locale-independent timestamp YYYYMMDD_HHMMSS using native CMD tools\n';
-        bufBat += 'for /f "tokens=1-6 delims=/: " %%a in (\'robocopy "%temp%" "%temp%" /l /nocopy /is /njh /njs /ndl /nc /ns /ts ^| findstr /r "^[ ]*[0-9]"^\') do (\n';
-        bufBat += '    set "RUN_TS=%%a%%b%%c_%%d%%e%%f"\n';
-        bufBat += ')\n\n';
-        bufBat += 'set LOG_FILE=sap_buffer_add_log_%RUN_TS%.log\n\n';
-        
-        bufBat += 'echo 1. Backing up existing buffer file with timestamp...\n';
-        bufBat += 'if exist "%BUFFER_PATH%" (\n';
-        bufBat += '    copy "%BUFFER_PATH%" "%BUFFER_PATH%_backup_%RUN_TS%.bak" >nul\n';
-        bufBat += '    if errorlevel 1 (\n';
-        bufBat += '        echo Error backing up buffer file!\n';
-        bufBat += '        goto :ABORT\n';
-        bufBat += '    )\n';
-        bufBat += '    echo Backup created: %BUFFER_PATH%_backup_%RUN_TS%.bak >> %LOG_FILE%\n';
-        bufBat += ') else (\n';
-        bufBat += '    echo Buffer file "%BUFFER_PATH%" not found, skipping backup.\n';
-        bufBat += ')\n\n';
-
-        if (shouldCleanBuffer) {
-            bufBat += 'echo 2. Clearing existing buffer entries...\n';
-            bufBat += 'tp delfrombuffer ALL %TARGET_SID% pf=%PROFILE% >nul 2>&1\n';
-            bufBat += 'type nul > "%BUFFER_PATH%"\n\n';
-        } else {
-            bufBat += 'echo 2. Retaining existing buffer entries...\n\n';
-        }
-
-        bufBat += 'echo 3. Adding selected transports into buffer (u0)...\n';
-        bufBat += 'set ADDED_COUNT=0\nset FAILED_LIST=\n\n';
+        var lines = [
+            "@echo off",
+            "REM STEP 2: SAP Transport Import Script (Windows Batch)",
+            "REM Built by Pankaj Kapote",
+            "",
+            "set TARGET_SID=" + sid,
+            "set DOMAIN_SID=" + domSid,
+            "set TARGET_CLIENT=" + client,
+            "set PROFILE=" + profile,
+            "",
+            "REM Generate runtime timestamp YYYYMMDD_HHMMSS",
+            'for /f "tokens=1-6 delims=/: " %%a in (\'robocopy "%temp%" "%temp%" /l /nocopy /is /njh /njs /ndl /nc /ns /ts ^| findstr /r "^[ ]*[0-9]"^\') do (',
+            '    set "RUN_TS=%%a%%b%%c_%%d%%e%%f"',
+            ")",
+            "set LOG_FILE=sap_import_log_%RUN_TS%.csv",
+            "",
+            "set CNT_RC8=0",
+            "set CNT_RC12=0",
+            "set RC8_LIST=",
+            "set RC12_LIST=",
+            "",
+            "echo Date,Time,Transport_Number,Target_SID,Target_Client,U_Flag,Return_Code > %LOG_FILE%",
+            ""
+        ];
 
         transportQueue.forEach(function(item) {
-            bufBat += 'echo Adding ' + item.tr + ' to buffer...\n';
-            bufBat += 'tp addtobuffer ' + item.tr + ' %TARGET_SID% client=%TARGET_CLIENT% u0 pf=%PROFILE% >nul 2>&1\n';
-            bufBat += 'if %ERRORLEVEL% EQU 0 (\n';
-            bufBat += '    set /a ADDED_COUNT+=1\n';
-            bufBat += ') else (\n';
-            bufBat += '    echo ERROR: Failed to add ' + item.tr + '\n';
-            bufBat += '    set FAILED_LIST=%FAILED_LIST% ' + item.tr + '\n';
-            bufBat += ')\n';
-        });
+            lines.push(
+                "echo Importing " + item.tr + "...",
+                "tp import " + item.tr + " %TARGET_SID% client=%TARGET_CLIENT% " + item.uflag + " pf=%PROFILE% >nul 2>&1",
+                "set RC=%ERRORLEVEL%",
+                "echo %DATE%,%TIME%," + item.tr + ",%TARGET_SID%,%TARGET_CLIENT%," + item.uflag + ",%RC% >> %LOG_FILE%",
+                "if %RC% EQU 8 ( set /a CNT_RC8+=1 & set RC8_LIST=%RC8_LIST% " + item.tr + " )",
+                "if %RC% EQU 12 ( set /a CNT_RC12+=1 & set RC12_LIST=%RC12_LIST% " + item.tr + " )"
+            );
 
-        bufBat += '\necho.\necho === BUFFER SETUP SUMMARY === >> %LOG_FILE%\necho Successfully added: %ADDED_COUNT% >> %LOG_FILE%\necho Failed TRs: %FAILED_LIST% >> %LOG_FILE%\n';
-        bufBat += 'echo Buffer setup completed. Log recorded in %LOG_FILE%\ngoto :END\n:ABORT\necho Buffer setup failed!\n:END\n';
-        downloadFile(bufBat, sid + "_1_buffer_setup_" + ts + ".bat", "text/plain");
-
-        // 2. Import Execution Script (.bat)
-        var impBat = '@echo off\nREM STEP 2: SAP Transport Import Script (Windows Batch)\nREM Built by Pankaj Kapote\n\n';
-        impBat += 'set TARGET_SID=' + sid + '\nset DOMAIN_SID=' + domSid + '\nset TARGET_CLIENT=' + client + '\nset PROFILE=' + profile + '\n\n';
-        
-        impBat += 'REM Generate runtime timestamp YYYYMMDD_HHMMSS\n';
-        impBat += 'for /f "tokens=1-6 delims=/: " %%a in (\'robocopy "%temp%" "%temp%" /l /nocopy /is /njh /njs /ndl /nc /ns /ts ^| findstr /r "^[ ]*[0-9]"^\') do (\n';
-        impBat += '    set "RUN_TS=%%a%%b%%c_%%d%%e%%f"\n';
-        impBat += ')\n';
-        impBat += 'set LOG_FILE=sap_import_log_%RUN_TS%.csv\n\n';
-        
-        impBat += 'set CNT_RC8=0\nset CNT_RC12=0\nset RC8_LIST=\nset RC12_LIST=\n\n';
-        impBat += 'echo Date,Time,Transport_Number,Target_SID,Target_Client,U_Flag,Return_Code > %LOG_FILE%\n\n';
-        
-        transportQueue.forEach(function(item) {
-            impBat += 'echo Importing ' + item.tr + '...\n';
-            impBat += 'tp import ' + item.tr + ' %TARGET_SID% client=%TARGET_CLIENT% ' + item.uflag + ' pf=%PROFILE% >nul 2>&1\n';
-            impBat += 'set RC=%ERRORLEVEL%\n';
-            impBat += 'echo %DATE%,%TIME%,' + item.tr + ',%TARGET_SID%,%TARGET_CLIENT%,' + item.uflag + ',%RC% >> %LOG_FILE%\n';
-            impBat += 'if %RC% EQU 8 ( set /a CNT_RC8+=1 & set RC8_LIST=%RC8_LIST% ' + item.tr + ' )\n';
-            impBat += 'if %RC% EQU 12 ( set /a CNT_RC12+=1 & set RC12_LIST=%RC12_LIST% ' + item.tr + ' )\n';
-            
             if (stopOnError) {
-                impBat += 'if %RC% GEQ 8 (\n';
-                impBat += '    echo WARNING: Transport ' + item.tr + ' ended with RC %RC%\n';
-                impBat += '    set /p CONF="Type YES to continue importing: "\n';
-                impBat += '    if /i not "%CONF%"=="YES" goto :ABORT\n';
-                impBat += ')\n';
+                lines.push(
+                    "if %RC% GEQ 8 (",
+                    '    echo WARNING: Transport ' + item.tr + ' ended with RC %RC%',
+                    '    set /p CONF="Type YES to continue importing: "',
+                    '    if /i not "%CONF%"=="YES" goto :ABORT',
+                    ")"
+                );
             }
-            impBat += '\n';
+            lines.push("");
         });
 
-        impBat += 'echo.\necho === SUMMARY BLOCK === >> %LOG_FILE%\n';
-        impBat += 'if defined RC8_LIST echo Transports with RC 8: %RC8_LIST% >> %LOG_FILE%\n';
-        impBat += 'if defined RC12_LIST echo Transports with RC 12: %RC12_LIST% >> %LOG_FILE%\n';
-        impBat += 'echo Import process completed. Summary logged to %LOG_FILE%\ngoto :END\n:ABORT\necho Import sequence aborted.\n:END\n';
-        downloadFile(impBat, sid + "_2_import_transports_" + ts + ".bat", "text/plain");
+        lines.push(
+            "echo.",
+            "echo === SUMMARY BLOCK === >> %LOG_FILE%",
+            "if defined RC8_LIST echo Transports with RC 8: %RC8_LIST% >> %LOG_FILE%",
+            "if defined RC12_LIST echo Transports with RC 12: %RC12_LIST% >> %LOG_FILE%",
+            "echo Import process completed. Summary logged to %LOG_FILE%",
+            "goto :END",
+            ":ABORT",
+            "echo Import sequence aborted.",
+            ":END"
+        );
+
+        downloadFile(lines.join("\r\n"), sid + "_2_import_transports_" + ts + ".bat", "text/plain");
     }
 </script>
 </body>
